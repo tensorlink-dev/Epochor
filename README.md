@@ -1,36 +1,52 @@
-Epochor: The Decentralized Subnet for Time-Series Intelligence
-Time is everywhere.
-Every process — economic, biological, environmental, computational — unfolds over time.
-These processes leave behind patterns we call time series.
+🌌 Epochor: The Decentralized Subnet for Temporal Intelligence
+Time is the dimension of everything.
+It shapes economies, biological systems, infrastructure, cognition — even the models we use to understand it.
 
-From financial markets to weather systems, IoT sensors to neural activity,
-time series data is central to understanding and predicting the world.
-Yet most machine learning systems are built for static data —
-ignoring the dynamics that truly define our reality.
+Time series are how we observe these processes — rich sequences of change that underpin nearly every complex system. Yet most foundation models have ignored time, focusing instead on static data or unstructured text.
 
-The Temporal package is designed to change that —
-providing the tools to build foundation models for time series.
-Models that can generalize across domains, scales, and modalities.
-But building and training such models at scale requires more than code.
+Epochor is an open, decentralized Bittensor subnet built to change that.
 
-This is where Epochor comes in.
-Epochor is a decentralized Bittensor subnet focused entirely on time.
-It’s a network for training, evaluating, and rewarding general-purpose time series models.
+It trains, ranks, and rewards models for understanding temporal structure — from forecasting to representation learning — across domains.
 
-A place where models learn to understand change, dynamics, and sequence.
+Just as an epoch marks a span of time, Epochor marks a collaborative effort to make temporal reasoning a first-class citizen in AI.
+ 
+⚙️ What Epochor Does
+🧠 Trains foundation models for time series forecasting and embeddings
 
-A system where contributors are incentivized to build better models —
-not just for one task, but for the broad landscape of temporal data.
+🎯 Scores models using robust metrics like CRPS, MQ Loss, Spectral, and Kernel-based divergences
 
-Like an epoch, Epochor tracks progression.
-But it also implies persistence — a long-term, collective effort to model time itself.
+🪙 Rewards contributors based on their performance and generalizability
 
-Why Epochor?
-Because time is a fundamental axis of intelligence.
+🔌 Integrates directly with temporal, a modular framework for building temporal transformers
 
-Because centralized training is a bottleneck.
+🤝 Why a Decentralized Subnet?
+Temporal data is diverse — crossing domains like:
 
-And because collective learning is more powerful than isolated research.
+Finance
+
+Weather & climate
+
+Health signals
+
+IoT & sensors
+
+Natural processes
+
+Training general models requires diverse data, perspectives, and continual adaptation.
+
+A decentralized architecture allows:
+
+Global participation
+
+Open innovation
+
+Aligned incentives
+
+Continual model evolution
+
+🪐 The Mission
+To build general-purpose models that reason over time.
+To unlock a new generation of AI that understands the world not just as it is — but as it unfolds.
 
 Epochor provides a decentralized framework for building
 robust, adaptable, and generalizable time series models —
