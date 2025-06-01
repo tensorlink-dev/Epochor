@@ -54,6 +54,8 @@ class CRPSEvaluator(BaseEvaluator):
     """
     Default evaluator using squared error (placeholder for CRPS).
     """
+    def eval_task(self): 
+        return 'CRPS'
 
     def evaluate(self, target: np.ndarray, prediction: np.ndarray) -> float:
         """
@@ -72,8 +74,9 @@ class CRPSEvaluator(BaseEvaluator):
 
         if target.shape != prediction.shape:
             raise ValueError("Prediction and target shapes must match.")
-
-        return float(np.mean((target - prediction) ** 2))
+        
+        losses = crps(target,prediction)
+        return  losses
 
 
 __all__ = ["BaseEvaluator", "CRPSEvaluator"]
