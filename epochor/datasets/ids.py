@@ -1,20 +1,10 @@
-You are an expert in evaluation dispatch.
-Please update the following under epo­chor/evaluation/:
 
-method.py — add a new enum:
-
-python
-Copy
-Edit
 from enum import Enum, auto
 
 class EvalMethodId(Enum):
     # existing entries…
-    SYNTHETIC_BENCHMARK = auto()"""
-Defines unique identifiers for different datasets used in the epochor project.
-"""
-from enum import Enum, auto # Standard library imports
-
+    SYNTHETIC_BENCHMARK = auto()
+    
 class DatasetId(Enum):
     """
     Enumeration of available dataset identifiers.

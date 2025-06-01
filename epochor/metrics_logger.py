@@ -82,8 +82,7 @@ if __name__ == '__main__':
         print("Skipping MetricsLogger example: WANDB_API_KEY not set.")
 
     # Test disabled mode
-    print("
-Testing disabled mode:")
+    print("Testing disabled mode:")
     disabled_logger = MetricsLogger(project_name="test", disabled=True)
     disabled_logger.log({"wont_log": 1})
     disabled_logger.finish()

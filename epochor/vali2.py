@@ -10,7 +10,7 @@ import bittensor as bt
 from epochor.config import EPOCHOR_CONFIG
 from epochor.generators import CombinedGenerator
 from epochor.evaluation import CRPSEvaluator
-# from epochor.validation import validate # Using EMA scores directly
+from epochor.validation import validate # Using EMA scores directly
 from epochor.rewards import allocate_rewards
 from epochor.api import load_hf
 from epochor.logging import reinitialize
@@ -90,7 +90,7 @@ class EpochorValidator(bt.Validator):
         if not active_uids:
             logger.warning("No active UIDs found.")
             self.metrics_logger.log({"active_uids_count": 0}, step=current_block)
-            # self.previous_block = current_block # Update block even if no UIDs, to keep sync with chain
+            self.previous_block = current_block # Update block even if no UIDs, to keep sync with chain
             return
         
         # Now that we have UIDs and are proceeding, update previous_block
@@ -119,9 +119,9 @@ class EpochorValidator(bt.Validator):
                 
                 # Store raw score for this round for logging
                 raw_scores_this_round[uid] = loss 
-                # Update EMA score
-                self.ema_tracker.update(uid, loss) 
-                logger.info(f"Scored UID {uid} | Raw Loss: {loss:.4f} | EMA Score: {self.ema_tracker.get(uid):.4f}")
+                # Update EMA score will be done after validate function
+                # self.ema_tracker.update(uid, loss) 
+                logger.info(f"Scored UID {uid} | Raw Loss: {loss:.4f}") # EMA Score logged later
                 evaluated_uids_count += 1
 
             except Exception as e:
@@ -130,11 +130,34 @@ class EpochorValidator(bt.Validator):
                 # Do not update EMA for failed evaluations, or update with a penalty if desired.
                 # For now, EMA for this UID will remain unchanged until a successful evaluation.
         
+        # Validate scores
+        try:
+            validated_scores = validate(raw_scores_this_round) # Pass the raw scores from this round
+            for uid, score in validated_scores.items():
+                if np.isfinite(score): # Ensure score is finite before updating EMA
+                    self.ema_tracker.update(uid, score)
+                    logger.info(f"Validated and updated EMA for UID {uid} | Validated Score: {score:.4f} | New EMA Score: {self.ema_tracker.get(uid):.4f}")
+                else:
+                    logger.warning(f"Validation for UID {uid} resulted in non-finite score ({score}). EMA not updated.")
+        except Exception as e:
+            logger.error(f"Validation step failed: {e}")
+            # Decide how to handle this: proceed with raw scores, or skip EMA update for this round?
+            # For now, we will proceed, and EMAs will only be updated for UIDs that had successful raw scoring.
+            # If validate itself fails catastrophically, validated_scores might not be populated.
+            # Fallback to updating EMA with raw scores if validation fails entirely:
+            if not 'validated_scores' in locals() or not validated_scores: # check if validated_scores is defined and populated
+                 logger.warning("Validation failed, attempting to update EMA with raw scores instead.")
+                 for uid, loss in raw_scores_this_round.items():
+                    if np.isfinite(loss):
+                        self.ema_tracker.update(uid, loss)
+                        logger.info(f"Fallback EMA update for UID {uid} | Raw Loss: {loss:.4f} | New EMA Score: {self.ema_tracker.get(uid):.4f}")
+
+
         current_ema_scores = self.ema_tracker.get_all_scores()
         
         # Filter EMA scores to only include UIDs active in *this* round, or handle appropriately
         # For allocation, we should only use scores of UIDs we attempted to query or were present.
-        scores_for_allocation = {uid: current_ema_scores.get(uid, 0.0) for uid in active_uids 
+        scores_for_allocation = {uid: current_ema_scores.get(uid, 0.0) for uid in active_uids \
                                  if uid in current_ema_scores and np.isfinite(current_ema_scores.get(uid, np.nan))}
         
         # If a UID was active but has no EMA score (e.g. first time seen and failed eval), it won't be in scores_for_allocation
@@ -245,6 +268,7 @@ class EpochorValidator(bt.Validator):
         uid_metrics = {}
         for uid_ in active_uids: # Log for all active UIDs, even if they failed or had no weight
             uid_metrics[f"raw_score_uid_{uid_}"] = raw_scores_this_round.get(uid_, np.nan)
+            uid_metrics[f"validated_score_uid_{uid_}"] = validated_scores.get(uid_, np.nan) # Log validated score
             uid_metrics[f"ema_score_uid_{uid_}"] = current_ema_scores.get(uid_, np.nan)
             # inverted_ema_scores might not have all uids if they had no ema score initially
             uid_metrics[f"inverted_ema_score_uid_{uid_}"] = inverted_ema_scores.get(uid_, np.nan) 
@@ -252,15 +276,34 @@ class EpochorValidator(bt.Validator):
         log_data.update(uid_metrics)
 
         # Histograms (requires wandb.Histogram)
-        if not self.metrics_logger.disabled and wandb.Histogram:
+        if not self.metrics_logger.disabled: # wandb import check removed, assuming it's available if not disabled
             if raw_scores_this_round:
-                log_data["raw_score_histogram"] = wandb.Histogram(list(filter(np.isfinite, raw_scores_this_round.values())))
+                log_data["raw_score_histogram"] = list(filter(np.isfinite, raw_scores_this_round.values()))
+            if validated_scores: # Log validated scores histogram
+                log_data["validated_score_histogram"] = list(filter(np.isfinite, validated_scores.values()))
             if current_ema_scores:
-                log_data["ema_score_histogram"] = wandb.Histogram(list(filter(np.isfinite, current_ema_scores.values())))
+                log_data["ema_score_histogram"] = list(filter(np.isfinite, current_ema_scores.values()))
             if inverted_ema_scores:
-                 log_data["inverted_ema_score_histogram"] = wandb.Histogram(list(filter(np.isfinite, inverted_ema_scores.values())))
+                 log_data["inverted_ema_score_histogram"] = list(filter(np.isfinite, inverted_ema_scores.values()))
             if final_weights_values:
-                log_data["final_weights_histogram"] = wandb.Histogram(final_weights_values) # Already filtered for finite by final_weights_uids
+                log_data["final_weights_histogram"] = final_weights_values # Already filtered for finite by final_weights_uids
+            
+            # For wandb.Histogram, ensure wandb is imported or handle appropriately
+            try:
+                import wandb
+                if raw_scores_this_round:
+                    log_data["raw_score_histogram"] = wandb.Histogram(list(filter(np.isfinite, raw_scores_this_round.values())))
+                if validated_scores: # Log validated scores histogram
+                    log_data["validated_score_histogram"] = wandb.Histogram(list(filter(np.isfinite, validated_scores.values())))
+                if current_ema_scores:
+                    log_data["ema_score_histogram"] = wandb.Histogram(list(filter(np.isfinite, current_ema_scores.values())))
+                if inverted_ema_scores:
+                    log_data["inverted_ema_score_histogram"] = wandb.Histogram(list(filter(np.isfinite, inverted_ema_scores.values())))
+                if final_weights_values:
+                    log_data["final_weights_histogram"] = wandb.Histogram(final_weights_values)
+            except ImportError:
+                logger.warning("wandb not imported, cannot log histograms.")
+
 
         # Top 5 UIDs by EMA score (inverted, so higher is better)
         if inverted_ema_scores:
