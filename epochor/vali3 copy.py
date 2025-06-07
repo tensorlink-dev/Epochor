@@ -65,10 +65,7 @@ from epochor.utils import metagraph_utils
 from epochor.utils.logging import configure_logging, reinitialize_logging
 from epochor.utils.perf_monitor import PerfMonitor
 
-os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
-
-os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 # Now build a dict mapping competition IDs → “raw source objects”
 competition_sources: Dict[int, Any] = {

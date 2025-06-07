@@ -23,7 +23,7 @@ class EPOCHOR_CONFIG:
     wandb_entity = "tensorlink"
 
     # Subnet info
-    netuid = 121
+    netuid = 999
 
     # Reward shaping
     reward_exponent = 2.0           # sharpens reward distribution
