@@ -1,7 +1,8 @@
 import abc
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from epochor.model.data import Model, ModelId
+from epochor.model.competition.data import ModelConstraints
 
 
 class LocalModelStore(abc.ABC):
@@ -19,7 +20,7 @@ class LocalModelStore(abc.ABC):
 
     @abc.abstractmethod
     def retrieve_model(
-        self, hotkey: str, model_id: ModelId, kwargs: Dict[str, Any]
+        self, hotkey: str, model_id: ModelId, model_constraints: Optional[ModelConstraints] = None
     ) -> Model:
         """Retrieves a trained model from the appropriate location based on implementation."""
         pass

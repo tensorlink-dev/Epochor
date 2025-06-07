@@ -1,12 +1,12 @@
 # epochor/validator/model_updater.py
 
-import statistics
+import os
 from typing import List, Optional, Tuple
 
 import logging
 from epochor.model.competition import utils as competition_utils
 from epochor.model.competition.data import Competition, ModelConstraints
-from epochor.model.data import Model, ModelMetadata
+from epochor.model.data import Model, ModelId, ModelMetadata
 from epochor.validator.model_tracker import ModelTracker
 from epochor.storage.local_model_store import LocalModelStore
 from epochor.storage.remote_model_store import RemoteModelStore
@@ -69,7 +69,11 @@ class ModelUpdater:
         return True
 
     async def _get_metadata(self, uid: int, hotkey: str) -> Optional[ModelMetadata]:
-        return await self.metadata_store.retrieve(uid, hotkey)
+        # Tries to get the metadata from the tracker first, then from the store.
+        tracked_metadata = self.model_tracker.get_metadata(hotkey)
+        if tracked_metadata:
+            return tracked_metadata
+        return await self.metadata_store.retrieve_model_metadata(uid, hotkey)
 
     async def sync_model(
         self,
@@ -85,9 +89,12 @@ class ModelUpdater:
         Returns True if a new model was fetched and passes all checks.
         """
         # 1) Fetch on-chain metadata
-        metadata = await self._get_metadata(uid, hotkey)
-        if metadata is None:
-            raise MinerMisconfiguredError(hotkey, "No metadata on-chain")
+        try:
+            metadata = await self._get_metadata(uid, hotkey)
+            if metadata is None:
+                raise MinerMisconfiguredError(hotkey, "No metadata on-chain")
+        except Exception as e:
+            raise MinerMisconfiguredError(hotkey, f"Failed to get metadata: {e}") from e
 
         # 2) Find the competition at upload and at current block
         comp_at_upload = competition_utils.get_competition_for_block(
@@ -115,10 +122,13 @@ class ModelUpdater:
 
         # 5) Download model
         local_path = self.local_store.get_path(hotkey)
-        model: Model = await self.remote_store.download(metadata.id, local_path)
+        try:
+            model: Model = await self.remote_store.download_model(metadata.id, local_path, comp_now.constraints)
+        except ValueError as e:
+            raise MinerMisconfiguredError(hotkey, f"Failed to download model: {e}") from e
 
         # 6) Record in tracker (even if validation fails)
-        self.model_tracker.on_model_update(hotkey, metadata)
+        self.model_tracker.on_model_update(hotkey, metadata, model.id)
 
         # 7) Optional hash check
         if metadata.id.hash:
@@ -132,6 +142,13 @@ class ModelUpdater:
                 hotkey,
                 f"Model fails parameter/architecture constraints for competition {comp_now.id}"
             )
+
+        # 9) Store the model locally.
+        try:
+            self.local_store.store_model(hotkey, model)
+        except ValueError as e:
+            raise MinerMisconfiguredError(hotkey, f"Failed to store model: {e}") from e
+
 
         return True
 

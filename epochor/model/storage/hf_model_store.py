@@ -7,14 +7,14 @@ from dataclasses import replace
 from typing import Optional
 
 import bittensor as bt
-from huggingface_hub import HfApi
+from huggingface_hub import HfApi, snapshot_download
 from huggingface_hub.utils import RepositoryNotFoundError
 
-from epochor.storage.remote_model_store import RemoteModelStore
+from epochor.model.storage.remote_model_store import RemoteModelStore
 from epochor.model.data import Model, ModelId
 from epochor.model.competition.data import ModelConstraints
 from epochor.model.model_updater import MinerMisconfiguredError
-from epochor.utils.hf_accessors import save_hf, load_hf
+from temporal.utils.hf_accessors import save_hf, load_hf
 from epochor.utils.hashing import hash_directory
 
 
@@ -34,123 +34,155 @@ class HuggingFaceModelStore(RemoteModelStore):
     async def upload_model(
         self,
         model: Model,
-        model_constraints: ModelConstraints
+        model_constraints: ModelConstraints,
     ) -> ModelId:
         """
-        Save locally + push to HF hub using epochor/utils/hf_accessors.save_hf.
-        Returns a new ModelId with the commit hash from HF.
+        Saves a model to a local directory, computes its hash, and pushes it to the Hugging Face Hub.
+
+        This method first saves the model and its configuration to a temporary local directory.
+        It then computes a secure hash of the directory's contents to ensure integrity.
+        Finally, it uploads the directory to the specified Hugging Face repository and retrieves the
+        commit hash from the Hub.
+
+        Args:
+            model (Model): The model to be uploaded, containing the PyTorch model and configuration.
+            model_constraints (ModelConstraints): The constraints to apply to the model.
+
+        Returns:
+            ModelId: A new ModelId containing the namespace, name, commit hash from Hugging Face,
+                    and the locally computed secure hash.
         """
         token = self._ensure_token()
         repo_id = f"{model.id.namespace}/{model.id.name}"
+        api = HfApi(token=token)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            # 1) Save & push to hub
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Save the model and config to a temporary directory.
+            # This prepares the content for both hashing and uploading.
             save_hf(
-                model.pt_model,
+                model=model.pt_model,
                 config=model.config,
-                save_directory=tmp,
-                safe=True,
-                repo_id=repo_id,
-                token=token,
-                private=True,
-                push_to_hub=True,
-                commit_message=f"Epochor upload for {model.id.name}"
-            )
-            # 2) Load back to compute secure hash
-            downloaded, _ = await self._download_and_return_path(
-                model.id, tmp, model_constraints, token
+                save_directory=tmpdir,
+                safe=True,  # Always use safetensors for safety and consistency.
             )
 
-        # Return the new ModelId (with updated commit/hash)
-        return downloaded.id
+            # Compute the secure hash from the contents of the local directory before uploading.
+            secure_hash = hash_directory(tmpdir)
+
+            # Now, upload the contents of the temporary directory to the Hub.
+            try:
+                 api.create_repo(repo_id, private=True, exist_ok=True)
+                 commit_info = api.upload_folder(
+                     repo_id=repo_id,
+                     folder_path=tmpdir,
+                     commit_message=f"Epochor upload for {model.id.name}",
+                 )
+                 commit_hash = commit_info.oid
+            except Exception as e:
+                raise IOError(f"Failed to upload model to Hugging Face: {e}") from e
+
+
+        # Return a new ModelId with the retrieved commit and the computed hash.
+        return ModelId(
+            namespace=model.id.namespace,
+            name=model.id.name,
+            commit=commit_hash,
+            hash=secure_hash,
+        )
 
     async def download_model(
         self,
         model_id: ModelId,
         local_path: str,
-        model_constraints: ModelConstraints
+        model_constraints: ModelConstraints,
     ) -> Model:
         """
-        Downloads from HF hub (or local) via epochor/utils/hf_accessors.load_hf,
-        enforces size constraints (using model_constraints.max_bytes),
-        and returns a Model with pt_model and updated ModelId (including hash).
+        Downloads a model from the Hugging Face Hub, verifies its integrity, and loads it into memory.
+
+        This method first checks the model repository size against constraints. It then downloads the
+        model files for a specific commit into a temporary directory. The hash of the downloaded
+        content is verified against the hash in the provided ModelId. If the hashes match, the model
+        is loaded into memory.
+
+        Args:
+            model_id (ModelId): The identifier of the model to be downloaded, including the commit and hash.
+            local_path (str): A local path (currently unused, but kept for future cache implementations).
+            model_constraints (ModelConstraints): The constraints to apply during model loading.
+
+        Returns:
+            Model: The downloaded and verified model, including the PyTorch model and its configuration.
         """
-        if not model_id.commit:
-            raise MinerMisconfiguredError(model_id.name, "Missing HF commit in ModelId")
+        if not model_id.commit or not model_id.hash:
+            raise MinerMisconfiguredError(
+                model_id.name, "Missing Hugging Face commit or hash in ModelId."
+            )
 
         repo_id = f"{model_id.namespace}/{model_id.name}"
-        token = os.getenv("HF_ACCESS_TOKEN") or os.getenv("HF_TOKEN")
+        token = self._ensure_token()
+        api = HfApi(token=token)
 
-        # 1) Check total repo size at given commit before downloading
+        # 1. Check repository size against constraints before downloading.
         try:
-            api = HfApi()
-            model_info = api.model_info(
+            model_info = api.repo_info(
                 repo_id=repo_id,
                 revision=model_id.commit,
-                timeout=10,
                 files_metadata=True,
                 token=token,
             )
+            total_size = sum(
+                f.size for f in model_info.siblings if f.size is not None
+            )
+            if (
+                model_constraints.max_bytes is not None
+                and total_size > model_constraints.max_bytes
+            ):
+                raise MinerMisconfiguredError(
+                    hotkey=model_id.name,
+                    message=f"Repository size {total_size} bytes exceeds max allowed {model_constraints.max_bytes} bytes.",
+                )
         except RepositoryNotFoundError:
             raise MinerMisconfiguredError(
                 hotkey=model_id.name,
-                message=f"Hugging Face repository '{repo_id}'@'{model_id.commit}' not found."
+                message=f"Hugging Face repository '{repo_id}' at commit '{model_id.commit}' not found.",
             )
 
-        total_size = sum(f.size for f in model_info.siblings)
-        if model_constraints.max_bytes is not None and total_size > model_constraints.max_bytes:
-            raise MinerMisconfiguredError(
-                hotkey=model_id.name,
-                message=(
-                    f"Repo size {total_size} bytes exceeds max allowed "
-                    f"{model_constraints.max_bytes} bytes."
+        # 2. Download files to a temporary directory for verification.
+        with tempfile.TemporaryDirectory() as tmp_download_dir:
+            try:
+                download_path = snapshot_download(
+                    repo_id=repo_id,
+                    revision=model_id.commit,
+                    cache_dir=tmp_download_dir,
+                    token=token,
                 )
-            )
+            except Exception as e:
+                raise MinerMisconfiguredError(
+                    hotkey=model_id.name,
+                    message=f"Failed to download '{repo_id}' from Hugging Face: {e}",
+                ) from e
 
-        # 2) Use load_hf to fetch into cache_dir=local_path
-        try:
-            pt_model = load_hf(
-                model_name_or_path=repo_id,
-                model_cls=model_constraints.model_cls,
-                config_cls=model_constraints.config_cls,
-                safe=True,
-                map_location="cpu",
-                cache_dir=local_path,
-                force_download=False,
-                token=token,
-                **model_constraints.load_kwargs
-            )
-        except Exception as e:
-            raise MinerMisconfiguredError(
-                hotkey=model_id.name,
-                message=(
-                    f"Failed to load '{repo_id}'@'{model_id.commit}' "
-                    f"with constraints {model_constraints}. Error: {e}"
+            # 3. Verify the hash of the downloaded content.
+            computed_hash = hash_directory(download_path)
+            if computed_hash != model_id.hash:
+                raise ValueError(
+                    f"Hash mismatch for {repo_id}. Expected {model_id.hash}, but downloaded content has hash {computed_hash}."
                 )
-            ) from e
 
-        # 3) Compute secure hash of the downloaded directory
-        #    The HFHub layout is: local_path/<namespace>/<model_name>/...
-        hf_folder = os.path.join(local_path, *repo_id.split("/"))
-        if not os.path.isdir(hf_folder):
-            raise MinerMisconfiguredError(
-                hotkey=model_id.name,
-                message=f"Expected directory '{hf_folder}' not found after load."
-            )
+            # 4. If the hash is valid, load the model from the verified local path.
+            try:
+                pt_model = load_hf(
+                    model_name_or_path=download_path,  # Load from the verified temporary path.
+                    model_cls=model_constraints.model_cls,
+                    config_cls=model_constraints.config_cls,
+                    safe=True,
+                    map_location="cpu",
+                    **model_constraints.load_kwargs,
+                )
+            except Exception as e:
+                raise MinerMisconfiguredError(
+                    hotkey=model_id.name,
+                    message=f"Failed to load verified model '{repo_id}': {e}",
+                ) from e
 
-        secure_hash = hash_directory(hf_folder)
-        new_id = replace(model_id, hash=secure_hash)
-        return Model(id=new_id, pt_model=pt_model)
-
-    async def _download_and_return_path(
-        self,
-        model_id: ModelId,
-        local_path: str,
-        model_constraints: ModelConstraints,
-        token: str
-    ) -> (Model, str):
-        """
-        Helper to download and return a Model (with updated commit) and the local path.
-        """
-        model = await self.download_model(model_id, local_path, model_constraints)
-        return model, local_path
+        # 5. Return the loaded model with its original, verified ModelId.
+        return Model(id=model_id, pt_model=pt_model, config=pt_model.config)
