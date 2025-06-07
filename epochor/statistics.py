@@ -160,7 +160,7 @@ def compute_aggregate_gap(ci_lo: np.ndarray, ci_hi: np.ndarray, return_raw_matri
 
     gap_matrix_for_sum = ci_hi[:, None] - ci_lo[None, :]
     np.fill_diagonal(gap_matrix_for_sum, 0.0) # As per original logic
-    agg_gap_scores = gap_matrix_for_sum.sum(axis=1)
+    agg_gap_scores = gap_matrix_for_sum.mean(axis=1)
 
     if return_raw_matrix:
         # The "raw gap matrix" for debug/visualization should intuitively show miner i vs miner j.
