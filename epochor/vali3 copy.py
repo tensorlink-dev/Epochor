@@ -531,6 +531,12 @@ class Validator:
                         logging.warning(
                             f"Failed to find metadata for uid {next_uid} with hotkey {hotkey}"
                         )
+                    # inside the `if updated:` block, after you know this `uid` got a fresh model
+                    self.ema_tracker.reset_uid(
+                        competition_id = metadata.id.competition_id,
+                        uid = next_uid
+                    )
+
             except InvalidStatus as e:
                 logging.info(
                     f"Websocket exception in update loop: {e}. Waiting 3 minutes."
