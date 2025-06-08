@@ -63,7 +63,7 @@ from epochor.model.model_tracker import ModelTracker
 from epochor.model.model_updater import ModelUpdater, MinerMisconfiguredError
 from epochor.utils import metagraph_utils
 from epochor.utils.logging import configure_logging, reinitialize_logging
-from epochor.utils.perf_monitor import PerfMonitor
+from taoverse.utilities.perf_monitor import PerfMonitor
 from taoverse.metagraph.metagraph_syncer import MetagraphSyncer
 from taoverse.metagraph.miner_iterator import MinerIterator
 from competitions.data import CompetitionId

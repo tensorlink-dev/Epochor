@@ -1,4 +1,6 @@
 import collections
+import pickle
+import typing
 from typing import Dict, Any, Optional
 
 from epochor.competition import get_current_competition
@@ -126,6 +128,21 @@ class CompetitionEMATracker:
         self.uid_to_hotkey.clear()
         self.hotkey_to_uid.clear()
 
+    def reset_competitions(self, competition_ids: typing.Set[Any]):
+        """Resets tracked competitions to only those identified.
+
+        Args:
+            competition_ids (typing.Set[Any]): Competition ids to continue tracking.
+        """
+        # Make a list to avoid issues deleting from within the dictionary iterator.
+        for key in list(self.trackers.keys()):
+            if key not in competition_ids:
+                del self.trackers[key]
+        
+        for key in list(self.raw_scores.keys()):
+            if key not in competition_ids:
+                del self.raw_scores[key]
+
     def reset_score_for_hotkey(self, hotkey: str):
         """
         Zero out both EMA and raw for the model behind this hotkey.
@@ -164,7 +181,50 @@ class CompetitionEMATracker:
 
     def get_hotkey(self, uid: int) -> Optional[str]:
         return self.uid_to_hotkey.get(uid)
- def save_state(self, filepath: str):
+        
+    def get_subnet_weights(
+            self,
+            competitions: List[Competition],
+            min_comp_weight_threshold: float = 0.0,
+        ) -> torch.Tensor:
+            """Aggregate tensor‐based weights across competitions (with optional thresholding)."""
+            subnet_weights = torch.zeros(self.num_neurons, dtype=torch.float32)
+
+            for comp in competitions:
+                comp_id = comp.id
+                if comp_id not in self.trackers:
+                    continue
+
+                # fetch the EMA‐derived tensor and normalize
+                comp_weights = self.trackers[comp_id].get_all_scores()
+                tensor = torch.tensor(
+                    [comp_weights.get(uid, 0.0) for uid in range(self.num_neurons)],
+                    dtype=torch.float32
+                )
+                tensor /= tensor.sum() if tensor.sum() > 0 else 1.0
+                tensor = tensor.nan_to_num(0.0)
+
+                if min_comp_weight_threshold > 0:
+                    mask = tensor < min_comp_weight_threshold
+                    tensor[mask] = 0.0
+                    tensor /= tensor.sum() if tensor.sum() > 0 else 1.0
+                    tensor = tensor.nan_to_num(0.0)
+
+                subnet_weights += tensor * comp.reward_percentage
+
+            subnet_weights /= subnet_weights.sum() if subnet_weights.sum() > 0 else 1.0
+            return subnet_weights.nan_to_num(0.0)
+
+    def get_competition_weights(self, competition_id: int) -> torch.Tensor:
+        """Return the EMA‐derived weight tensor for one competition."""
+        tracker = self._get_or_create_tracker(competition_id)
+        raw = tracker.get_all_scores()
+        return torch.tensor(
+            [raw.get(uid, 0.0) for uid in range(self.num_neurons)],
+            dtype=torch.float32
+        )
+
+    def save_state(self, filepath: str):
         """
         Serialize entire tracker state to disk.
         """
