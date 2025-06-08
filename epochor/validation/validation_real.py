@@ -73,8 +73,6 @@ def compute_scores(
   #  block_vec = np.stack(uid_to_block,axis=0 )
   #  diffs = current_block - block_vec    # shape: (N,)
 
-
-
     # Compute components
     try:
         win_rate_arr = compute_overall_win_rate(mat)

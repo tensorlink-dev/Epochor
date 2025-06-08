@@ -1160,7 +1160,9 @@ class Validator:
           #  competition.constraints.epsilon_func,
           #  cur_block,
         )
-        EMATracker.update(results['final_scores_dict'],competion_id=competition.id)
+
+        scores_for_ema  = EpsilonFunc(results['final_scores_dict'], competition_id = competition.id)
+        EMATracker.update(scores_for_ema,competion_id=competition.id)
         scores= EMATracker.get(competion_id=competition.id )
         top_uid = max(scores, key=scores.get)
         self._record_eval_results(top_uid, cur_block, uid_to_state, competition.id)

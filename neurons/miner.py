@@ -1,7 +1,6 @@
 # The MIT License (MIT)
 # Copyright © 2023 Yuma Rao
-# TODO(developer): Set your name
-# Copyright © 2023 <your name>
+# Copyright © 2023 const
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 # documentation files (the “Software”), to deal in the Software without restriction, including without limitation
@@ -17,157 +16,430 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
-import time
+import argparse
+import asyncio
+import datetime as dt
+import math
+import os
+import random
 import typing
+
 import bittensor as bt
+import torch
+import wandb
+from dotenv import load_dotenv
+from epochor.model.storage.chain.chain_model_metadata_store import (
+    ChainModelMetadataStore,
+)
+from epochor.model.storage.hugging_face.hugging_face_model_store import (
+    HuggingFaceModelStore,
+)
+from epochor.model.storage.model_metadata_store import ModelMetadataStore
+from epochor.utils import logging
+from epochor.utils import utils as epochor_utils
+from transformers import PreTrainedModel
 
-# Bittensor Miner Template:
-import template
+import epochor.constants as constants
+import epochor.pretrain as pt
+from epochor.competitions.data import CompetitionId
 
-# import base miner class which takes care of most of the boilerplate
-from template.base.miner import BaseMinerNeuron
+load_dotenv()  # take environment variables from .env.
+
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 
-class Miner(BaseMinerNeuron):
+# === Config ===
+def get_config():
     """
-    Your miner neuron class. You should use this class to define your miner's behavior. In particular, you should replace the forward function with your own logic. You may also want to override the blacklist and priority functions according to your needs.
+    Set up and parse the command-line arguments to configure the system.
 
-    This class inherits from the BaseMinerNeuron class, which in turn inherits from BaseNeuron. The BaseNeuron class takes care of routine tasks such as setting up wallet, subtensor, metagraph, logging directory, parsing config, etc. You can override any of the methods in BaseNeuron if you need to customize the behavior.
+    The configuration is responsible for setting up the environment including
+    the model path, device to use, and the bittensor wallet and logging configurations.
 
-    This class provides reasonable default behavior for a miner such as blacklisting unrecognized hotkeys, prioritizing requests based on stake, and forwarding requests to the forward function. If you need to define custom
+    Returns:
+        A namespace object containing the configuration parameters.
     """
 
-    def __init__(self, config=None):
-        super(Miner, self).__init__(config=config)
+    # Initialize an argument parser
+    parser = argparse.ArgumentParser()
 
-        # TODO(developer): Anything specific to your use case you can do here
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Does not launch a wandb run, does not send model to wandb, does not check if registered",
+    )
+    parser.add_argument(
+        "--wandb_project", type=str, help="The wandb project to log to."
+    )
+    parser.add_argument("--wandb_entity", type=str, help="The wandb entity to log to.")
+    parser.add_argument(
+        "--hf_repo_id",
+        type=str,
+        help="The hugging face repo id, which should include the org or user and repo name. E.g. jdoe/pretraining",
+    )
+    parser.add_argument(
+        "--avg_loss_upload_threshold",
+        type=float,
+        default=0,  # Default to never uploading.
+        help="The threshold for avg_loss the model must achieve to upload it to hugging face. A miner can only advertise one model, so it should be the best one.",
+    )
+    parser.add_argument(
+        "--model_dir",
+        default=os.path.join(constants.ROOT_DIR, "local-models/"),
+        help="Where to download/save models for training",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        help="The device on which to run. cpu or cuda",
+    )
+    parser.add_argument(
+        "--load_best",
+        action="store_true",
+        help="If set, the miner loads the best model from wandb to train off.",
+    )
+    parser.add_argument(
+        "--load_uid",
+        type=int,
+        default=None,
+        help="If passed loads the model under the specified uid.",
+    )
+    parser.add_argument(
+        "--load_model_dir",
+        type=str,
+        default=None,
+        help="If provided, loads a previously trained HF model from the specified directory",
+    )
+    parser.add_argument(
+        "--load_model",
+        type=str,
+        default=None,
+        help="If provided, loads the safetensor serialized model from the specified file."
+        "The model must be a GPT2LMHeadModel, with config as in pretrain/model.py",
+    )
+    parser.add_argument(
+        "--num_epochs",
+        type=int,
+        default=-1,
+        help="Number of training epochs (-1 is infinite)",
+    )
+    parser.add_argument("--lr", type=float, default=0.00001, help="Learning rate.")
+    parser.add_argument(
+        "--bs", type=int, default=constants.batch_size, help="Batch size"
+    )
+    parser.add_argument(
+        "--sl", type=int, default=4096, help="Sequence length"
+    )
+    parser.add_argument(
+        "--accumulation_steps",
+        type=int,
+        default=5,
+        help="The number of training accumulation steps.",
+    )
+    parser.add_argument(
+        "--pages_per_epoch",
+        type=int,
+        default=10,
+        help="Number of pages trained on per epoch",
+    )
+    parser.add_argument(
+        "--netuid",
+        type=int,
+        default=constants.SUBNET_UID,
+        help="The subnet UID.",
+    )
+    parser.add_argument(
+        "--use_hotkey_in_hash",
+        action="store_true",  # Defaults to False.
+        help="If true, use the hotkey of the miner when generating the hash.",
+    )
+    parser.add_argument(
+        "--competition_id",
+        type=CompetitionId,
+        required=True,
+        action=epochor_utils.IntEnumAction,
+        help="competition to mine for (use --list-competitions to get all competitions)",
+    )
+    parser.add_argument(
+        "--list_competitions", action="store_true", help="Print out all competitions"
+    )
 
-    async def forward(
-        self, synapse: template.protocol.Dummy
-    ) -> template.protocol.Dummy:
-        """
-        Processes the incoming 'Dummy' synapse by performing a predefined operation on the input data.
-        This method should be replaced with actual logic relevant to the miner's purpose.
+    # Include wallet and logging arguments from bittensor
+    bt.wallet.add_args(parser)
+    bt.subtensor.add_args(parser)
+    bt.logging.add_args(parser)
 
-        Args:
-            synapse (template.protocol.Dummy): The synapse object containing the 'dummy_input' data.
+    # Parse the arguments and create a configuration namespace
+    config = bt.config(parser)
 
-        Returns:
-            template.protocol.Dummy: The synapse object with the 'dummy_output' field set to twice the 'dummy_input' value.
+    return config
 
-        The 'forward' function is a placeholder and should be overridden with logic that is appropriate for
-        the miner's intended operation. This method demonstrates a basic transformation of input data.
-        """
-        # TODO(developer): Replace with actual implementation logic.
-        synapse.dummy_output = synapse.dummy_input * 2
-        return synapse
 
-    async def blacklist(
-        self, synapse: template.protocol.Dummy
-    ) -> typing.Tuple[bool, str]:
-        """
-        Determines whether an incoming request should be blacklisted and thus ignored. Your implementation should
-        define the logic for blacklisting requests based on your needs and desired security parameters.
+async def load_starting_model(
+    config: bt.config,
+    metagraph: bt.metagraph,
+    metadata_store: ModelMetadataStore,
+    kwargs: typing.Dict[str, typing.Any],
+) -> PreTrainedModel:
+    """Loads the model to train based on the provided config."""
 
-        Blacklist runs before the synapse data has been deserialized (i.e. before synapse.data is available).
-        The synapse is instead contracted via the headers of the request. It is important to blacklist
-        requests before they are deserialized to avoid wasting resources on requests that will be ignored.
+    # Initialize the model based on the best on the network.
+    if config.load_best:
+        model = await pt.mining.load_best_model(
+            config.model_dir,
+            config.competition_id,
+            metagraph=metagraph,
+            metadata_store=metadata_store,
+        )
+        logging.info(
+            f"Training with best model from competition: {config.competition_id}. Model={str(model)}"
+        )
+        return model
 
-        Args:
-            synapse (template.protocol.Dummy): A synapse object constructed from the headers of the incoming request.
+    # Initialize the model based on a passed uid.
+    if config.load_uid is not None:
+        # Sync the state from the passed uid.
+        model = await pt.mining.load_remote_model(
+            config.load_uid,
+            config.model_dir,
+            metagraph=metagraph,
+            metadata_store=metadata_store,
+        )
+        logging.info(
+            f"Training with model from uid: {config.load_uid}. Model={str(model)}"
+        )
+        return model
 
-        Returns:
-            Tuple[bool, str]: A tuple containing a boolean indicating whether the synapse's hotkey is blacklisted,
-                            and a string providing the reason for the decision.
+    # Check if we should load a model from a local directory.
+    if config.load_model_dir:
+        model = pt.mining.load_local_model(config.load_model_dir, kwargs)
+        logging.info(f"Training with model from disk. Model={str(model)}")
+        return model
 
-        This function is a security measure to prevent resource wastage on undesired requests. It should be enhanced
-        to include checks against the metagraph for entity registration, validator status, and sufficient stake
-        before deserialization of synapse data to minimize processing overhead.
+    # Check if we should load a model from a local file.
+    if config.load_model:
+        model = pt.mining.load_gpt2_model(config.load_model)
+        logging.info(f"Training with model from disk. Model={str(model)}")
+        return model
 
-        Example blacklist logic:
-        - Reject if the hotkey is not a registered entity within the metagraph.
-        - Consider blacklisting entities that are not validators or have insufficient stake.
+    # Start from scratch.
+    model = pt.model.get_model()
+    logging.info(f"Training from scratch. Model={str(model)}")
 
-        In practice it would be wise to blacklist requests from entities that are not validators, or do not have
-        enough stake. This can be checked via metagraph.S and metagraph.validator_permit. You can always attain
-        the uid of the sender via a metagraph.hotkeys.index( synapse.dendrite.hotkey ) call.
+    return model
 
-        Otherwise, allow the request to be processed further.
-        """
 
-        if synapse.dendrite is None or synapse.dendrite.hotkey is None:
-            bt.logging.warning(
-                "Received a request without a dendrite or hotkey."
+async def main(config: bt.config):
+    # Create bittensor objects.
+    bt.logging.set_warning()
+    epochor_utils.logging.reinitialize()
+    epochor_utils.configure_logging(config)
+
+    wallet = bt.wallet(config=config)
+    subtensor = bt.subtensor(config=config)
+    metagraph = subtensor.metagraph(config.netuid)
+    chain_metadata_store = ChainModelMetadataStore(
+        subtensor=subtensor,
+        subnet_uid=config.netuid,
+        wallet=wallet,
+    )
+
+    # If running online, make sure the miner is registered, has a hugging face access token, and has provided a repo id.
+    my_uid = None
+    if not config.offline:
+        my_uid = epochor_utils.assert_registered(wallet, metagraph)
+        HuggingFaceModelStore.assert_access_token_exists()
+
+    # Create a unique run id for this run.
+    run_id = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    model_dir = pt.mining.model_path(config.model_dir, run_id)
+    os.makedirs(model_dir, exist_ok=True)
+
+    use_wandb = False
+    if not config.offline:
+        if config.wandb_project is None or config.wandb_entity is None:
+            logging.warning(
+                "Wandb project or entity not specified. This run will not be logged to wandb"
             )
-            return True, "Missing dendrite or hotkey"
+        else:
+            use_wandb = True
 
-        # TODO(developer): Define how miners should blacklist requests.
-        uid = self.metagraph.hotkeys.index(synapse.dendrite.hotkey)
-        if (
-            not self.config.blacklist.allow_non_registered
-            and synapse.dendrite.hotkey not in self.metagraph.hotkeys
-        ):
-            # Ignore requests from un-registered entities.
-            bt.logging.trace(
-                f"Blacklisting un-registered hotkey {synapse.dendrite.hotkey}"
+    model_constraints = constants.MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
+        config.competition_id, None
+    )
+
+    if not model_constraints:
+        raise RuntimeError(f"No competition found for {config.competition_id}")
+
+    kwargs = model_constraints.kwargs.copy()
+
+    # Init model.
+    # Init model.
+    model = await load_starting_model(config, metagraph, chain_metadata_store, kwargs)
+    model = model.train()
+    model = model.to(config.device)
+
+    logging.info(f"Saving model to path: {model_dir}.")
+    pt.mining.save(model, model_dir)
+
+    # Build optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr, weight_decay=0.01)
+    wandb_run = None
+
+    # If using wandb, start a new run.
+    if use_wandb:
+        token = os.getenv("WANDB_API_KEY")
+        if not token:
+            raise ValueError(
+                "To use Wandb, you must set WANDB_API_KEY in your .env file"
             )
-            return True, "Unrecognized hotkey"
 
-        if self.config.blacklist.force_validator_permit:
-            # If the config is set to force validator permit, then we should only allow requests from validators.
-            if not self.metagraph.validator_permit[uid]:
-                bt.logging.warning(
-                    f"Blacklisting a request from non-validator hotkey {synapse.dendrite.hotkey}"
+        wandb.login(key=token)
+
+        wandb_run = wandb.init(
+            name=run_id,
+            entity=config.wandb_entity,
+            project=config.wandb_project,
+            config={
+                "uid": my_uid,
+                "hotkey": wallet.hotkey.ss58_address,
+                "run_name": run_id,
+                "version": constants.__version__,
+                "type": "miner",
+            },
+            allow_val_change=True,
+        )
+
+        # At the end of the run, upload the model to wandb, for debugging purposes only.
+        # This is not seen by validators.
+        wandb_run.save(os.path.join(model_dir, "*"), base_path=model_dir, policy="end")
+    else:
+        logging.warning(
+            "Not posting run to wandb. Either --offline is specified or the wandb settings are missing."
+        )
+
+    # Start the training loop
+    epoch_step = 0
+    global_step = 0
+    n_acc_steps = 0
+    best_avg_loss = math.inf
+    accumulation_steps = config.accumulation_steps
+
+    try:
+        while epoch_step < config.num_epochs or config.num_epochs == -1:
+            # Initialize loss accumulator for the epoch
+            epoch_loss = 0.0
+
+            # Prepare the data loader with random pages for each epoch
+            logging.info(
+                f"Loading {config.pages_per_epoch} pages for training this epoch"
+            )
+            random_pages = [
+                random.randint(1, pt.dataset.SubsetFalconLoader.max_pages)
+                for _ in range(config.pages_per_epoch)
+            ]
+
+            # Change this loader if you wish to use a different dataset
+            loader = pt.dataset.SubsetFineWebEdu2Loader(
+                batch_size=config.bs,
+                sequence_length=config.sl,
+                num_pages=config.pages_per_epoch,
+                tokenizer=tokenizer,
+            )
+
+            # Enumerate over the data loader
+            n_batches = 0
+            optimizer.zero_grad()  # Initialize gradients to zero
+
+            for i, batch in enumerate(loader):
+                # Move the input batch to the device
+                inputs = batch.to(model.device)
+
+                # Forward pass: compute the model output and loss
+                outputs = model(inputs, labels=inputs)
+
+                loss = outputs.loss / accumulation_steps  # Scale loss
+                loss.backward()  # Accumulate gradients
+
+                if (i + 1) % accumulation_steps == 0:
+                    n_acc_steps += 1
+                    optimizer.step()  # Perform a single optimization step
+                    optimizer.zero_grad()  # Clear gradients
+                    logging.info(
+                        f"Step: {n_acc_steps} loss: {outputs.loss.detach().item()}"
+                    )
+                    if use_wandb:
+                        wandb_run.log(
+                            {"loss": outputs.loss.detach(), "n_batches": n_batches},
+                            step=n_acc_steps,
+                        )
+
+                torch.cuda.empty_cache()
+
+                n_batches += 1
+                global_step += 1
+                epoch_loss += outputs.loss.detach().item()
+
+            # Calculate the average loss for the epoch
+            avg_loss = epoch_loss / n_batches
+
+            # Log the average loss for the epoch
+            logging.info(f"Epoch: {epoch_step} average loss: {avg_loss}")
+            epoch_step += 1
+
+            # Check if the average loss of this epoch is the best we've seen so far
+            if avg_loss < best_avg_loss:
+                best_avg_loss = avg_loss  # Update the best average loss
+
+                logging.info(f"New best average loss: {best_avg_loss}.")
+
+                # Save the model to your mining dir.
+                logging.info(f"Saving model to path: {model_dir}.")
+                pt.mining.save(model, model_dir)
+
+        logging.info("Finished training")
+        # Push the model to your run.
+        if not config.offline:
+            if best_avg_loss < config.avg_loss_upload_threshold:
+                logging.info(
+                    f"Trained model had a best_avg_loss of {best_avg_loss} which is below the threshold of {config.avg_loss_upload_threshold}. Uploading to hugging face. "
                 )
-                return True, "Non-validator hotkey"
 
-        bt.logging.trace(
-            f"Not Blacklisting recognized hotkey {synapse.dendrite.hotkey}"
-        )
-        return False, "Hotkey recognized!"
+                # First, reload the best model from the training run.
+                model_to_upload = pt.mining.load_local_model(
+                    model_dir, model_constraints.kwargs
+                )
 
-    async def priority(self, synapse: template.protocol.Dummy) -> float:
-        """
-        The priority function determines the order in which requests are handled. More valuable or higher-priority
-        requests are processed before others. You should design your own priority mechanism with care.
+                await pt.mining.push(
+                    model_to_upload,
+                    config.hf_repo_id,
+                    wallet,
+                    config.competition_id,
+                    metadata_store=chain_metadata_store,
+                )
 
-        This implementation assigns priority to incoming requests based on the calling entity's stake in the metagraph.
-
-        Args:
-            synapse (template.protocol.Dummy): The synapse object that contains metadata about the incoming request.
-
-        Returns:
-            float: A priority score derived from the stake of the calling entity.
-
-        Miners may receive messages from multiple entities at once. This function determines which request should be
-        processed first. Higher values indicate that the request should be processed first. Lower values indicate
-        that the request should be processed later.
-
-        Example priority logic:
-        - A higher stake results in a higher priority value.
-        """
-        if synapse.dendrite is None or synapse.dendrite.hotkey is None:
-            bt.logging.warning(
-                "Received a request without a dendrite or hotkey."
+            else:
+                logging.info(
+                    f"This training run achieved a best_avg_loss={best_avg_loss}, which did not meet the upload threshold. Not uploading to hugging face."
+                )
+        else:
+            logging.info(
+                "Not uploading to hugging face because --offline was specified."
             )
-            return 0.0
 
-        # TODO(developer): Define how miners should prioritize requests.
-        caller_uid = self.metagraph.hotkeys.index(
-            synapse.dendrite.hotkey
-        )  # Get the caller index.
-        priority = float(
-            self.metagraph.S[caller_uid]
-        )  # Return the stake as the priority.
-        bt.logging.trace(
-            f"Prioritizing {synapse.dendrite.hotkey} with value: {priority}"
-        )
-        return priority
+    finally:
+        # Important step.
+        if wandb_run:
+            wandb_run.finish()
 
 
-# This is the main function, which runs the miner.
 if __name__ == "__main__":
-    with Miner() as miner:
-        while True:
-            bt.logging.info(f"Miner running... {time.time()}")
-            time.sleep(5)
+    # Parse and print configuration
+    config = get_config()
+
+    if config.list_competitions:
+        print(constants.COMPETITION_SCHEDULE_BY_BLOCK)
+    else:
+        print(config)
+        asyncio.run(main(config))
