@@ -17,7 +17,7 @@ import torch # Added torch for tensor operations
 from .base import Benchmarker
 from .metrics import mse
 try:
-    from epochor.generators.base import BlendedSeriesGeneratorV1
+    from epochor.generators.base import Benchmarker
     from epochor.generators.sampler import random_blended_config
 except ImportError as e:
     import logging
@@ -25,15 +25,6 @@ except ImportError as e:
         "Failed to import BlendedSeriesGeneratorV1 or random_blended_config "
         f"from epochor.generators: {e}. SyntheticBenchmarkerV1 will not be fully functional."
     )
-    # Placeholder definitions
-    class BlendedSeriesGeneratorV1: # type: ignore
-        def __init__(self, config: Dict[str, Any]):
-            self.config = config; self.length = config.get("length",0)
-            logging.warning("Using placeholder BlendedSeriesGeneratorV1.")
-        def generate(self, seed: int) -> np.ndarray: return np.zeros((self.length,1))
-    def random_blended_config(length: int, seed: int) -> Dict[str, Any]: # type: ignore
-        logging.warning("Using placeholder random_blended_config.")
-        return {"length": length, "blend_kernels": []}
 
 
 class SyntheticBenchmarkerV1(Benchmarker):

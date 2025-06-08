@@ -48,10 +48,10 @@ from rich.table import Table
 # Epochor Imports
 from epochor import constants
 from epochor import utils
-from epochor.config import validator_config
-from epochor.competition import utils as competition_utils
+from neurons import config
+from epochor.competition import utils as competition_utils 
 from epochor.competition.data import Competition, CompetitionId, EpsilonFunc
-from epochor.dataloaders import DatasetLoaderFactory, SubsetLoader
+from epochor.dataloaders import DatasetLoaderFactory
 from epochor.ema_tracker import EMATracker
 from epochor.evaluation import Evaluator
 from epochor.model.data import EvalResult, ScoreDetails
@@ -64,7 +64,10 @@ from epochor.model.model_updater import ModelUpdater, MinerMisconfiguredError
 from epochor.utils import metagraph_utils
 from epochor.utils.logging import configure_logging, reinitialize_logging
 from epochor.utils.perf_monitor import PerfMonitor
-
+from taoverse.metagraph.metagraph_syncer import MetagraphSyncer
+from taoverse.metagraph.miner_iterator import MinerIterator
+from competitions.data import CompetitionId
+import constants
 
 
 # Now build a dict mapping competition IDs → “raw source objects”
@@ -925,14 +928,6 @@ class Validator:
                         seed=seed,
                         sequence_length=competition.constraints.sequence_length,
                     )
-                    # Must pass batch_size for a Dataset
-                    data_loader= DataLoaderFactory.get_loader(
-                        source=competition_sources[competition.id],
-                        batch_size=32,
-                        shuffle=True,
-                        num_workers= # QUERY 
-                    )
-
                 except Exception as e:
                     logging.error(f"Error loading data for task {eval_task.name}: {e}")
                     logging.error(f"Skipping task {eval_task.name} for competition {competition.id}")
@@ -1160,7 +1155,9 @@ class Validator:
           #  competition.constraints.epsilon_func,
           #  cur_block,
         )
-        EMATracker.update(results['final_scores_dict'],competion_id=competition.id)
+
+        scores_for_ema  = EpsilonFunc(results['final_scores_dict'], competition_id = competition.id)
+        EMATracker.update(scores_for_ema,competion_id=competition.id)
         scores= EMATracker.get(competion_id=competition.id )
         top_uid = max(scores, key=scores.get)
         self._record_eval_results(top_uid, cur_block, uid_to_state, competition.id)

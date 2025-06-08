@@ -10,12 +10,14 @@ class EvalMethodId(Enum):
     Each member represents a distinct way an evaluation can be performed
     or a specific benchmark that can be run.
     """
-    # If there were existing entries, they would go here.
-    # Example:
-    # SOME_EXISTING_METHOD = auto()
-    
-    SYNTHETIC_BENCHMARK = auto()
-    # Example of how other methods might be added:
-    # REAL_WORLD_SCENARIO_A = auto()
+    CRPS_LOSS = 1 
 
-__all__ = ["EvalMethodId"]
+
+class NormalizationId(Enum):
+    """
+    Defines unique identifiers for different normalization methods.
+    """
+    NONE = 0
+    INVERSE_EXPONENTIAL = 1
+
+__all__ = ["EvalMethodId", "NormalizationId"]

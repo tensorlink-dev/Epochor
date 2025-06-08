@@ -28,20 +28,20 @@ import bittensor as bt
 import torch
 import wandb
 from dotenv import load_dotenv
-from epochor.model.storage.chain.chain_model_metadata_store import (
+from epochor.model.storage.metadata_model_store import (
     ChainModelMetadataStore,
 )
-from epochor.model.storage.hugging_face.hugging_face_model_store import (
+from epochor.model.storage.hf_model_store import (
     HuggingFaceModelStore,
 )
-from epochor.model.storage.model_metadata_store import ModelMetadataStore
+from epochor.model.base_metadata_model_store import ModelMetadataStore
 from epochor.utils import logging
-from epochor.utils import utils as epochor_utils
+from epochor.utils import misc as epochor_utils
 from transformers import PreTrainedModel
 
-import epochor.constants as constants
-import epochor.pretrain as pt
-from epochor.competitions.data import CompetitionId
+import epochor.mining as mining
+from epochor.competition.data import CompetitionId
+from epochor.competitions import competitions
 
 load_dotenv()  # take environment variables from .env.
 
@@ -85,7 +85,7 @@ def get_config():
     )
     parser.add_argument(
         "--model_dir",
-        default=os.path.join(constants.ROOT_DIR, "local-models/"),
+        default=os.path.join("local-models/"),
         help="Where to download/save models for training",
     )
     parser.add_argument(
@@ -126,7 +126,7 @@ def get_config():
     )
     parser.add_argument("--lr", type=float, default=0.00001, help="Learning rate.")
     parser.add_argument(
-        "--bs", type=int, default=constants.batch_size, help="Batch size"
+        "--bs", type=int, default=16, help="Batch size"
     )
     parser.add_argument(
         "--sl", type=int, default=4096, help="Sequence length"
@@ -146,7 +146,7 @@ def get_config():
     parser.add_argument(
         "--netuid",
         type=int,
-        default=constants.SUBNET_UID,
+        default=31,
         help="The subnet UID.",
     )
     parser.add_argument(
@@ -186,7 +186,7 @@ async def load_starting_model(
 
     # Initialize the model based on the best on the network.
     if config.load_best:
-        model = await pt.mining.load_best_model(
+        model = await mining.load_best_model(
             config.model_dir,
             config.competition_id,
             metagraph=metagraph,
@@ -200,7 +200,7 @@ async def load_starting_model(
     # Initialize the model based on a passed uid.
     if config.load_uid is not None:
         # Sync the state from the passed uid.
-        model = await pt.mining.load_remote_model(
+        model = await mining.load_remote_model(
             config.load_uid,
             config.model_dir,
             metagraph=metagraph,
@@ -213,18 +213,18 @@ async def load_starting_model(
 
     # Check if we should load a model from a local directory.
     if config.load_model_dir:
-        model = pt.mining.load_local_model(config.load_model_dir, kwargs)
+        model = mining.load_local_model(config.load_model_dir, **kwargs)
         logging.info(f"Training with model from disk. Model={str(model)}")
         return model
 
     # Check if we should load a model from a local file.
     if config.load_model:
-        model = pt.mining.load_gpt2_model(config.load_model)
+        model = mining.load_local_model(config.load_model, **kwargs)
         logging.info(f"Training with model from disk. Model={str(model)}")
         return model
 
     # Start from scratch.
-    model = pt.model.get_model()
+    model = mining.load_local_model(config.model_dir, **kwargs)
     logging.info(f"Training from scratch. Model={str(model)}")
 
     return model
@@ -233,7 +233,7 @@ async def load_starting_model(
 async def main(config: bt.config):
     # Create bittensor objects.
     bt.logging.set_warning()
-    epochor_utils.logging.reinitialize()
+    logging.reinitialize()
     epochor_utils.configure_logging(config)
 
     wallet = bt.wallet(config=config)
@@ -253,7 +253,7 @@ async def main(config: bt.config):
 
     # Create a unique run id for this run.
     run_id = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    model_dir = pt.mining.model_path(config.model_dir, run_id)
+    model_dir = mining.model_path(config.model_dir, run_id)
     os.makedirs(model_dir, exist_ok=True)
 
     use_wandb = False
@@ -265,7 +265,7 @@ async def main(config: bt.config):
         else:
             use_wandb = True
 
-    model_constraints = constants.MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
+    model_constraints = competitions.MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
         config.competition_id, None
     )
 
@@ -275,13 +275,12 @@ async def main(config: bt.config):
     kwargs = model_constraints.kwargs.copy()
 
     # Init model.
-    # Init model.
     model = await load_starting_model(config, metagraph, chain_metadata_store, kwargs)
     model = model.train()
     model = model.to(config.device)
 
     logging.info(f"Saving model to path: {model_dir}.")
-    pt.mining.save(model, model_dir)
+    mining.save(model, model_dir)
 
     # Build optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr, weight_decay=0.01)
@@ -305,7 +304,7 @@ async def main(config: bt.config):
                 "uid": my_uid,
                 "hotkey": wallet.hotkey.ss58_address,
                 "run_name": run_id,
-                "version": constants.__version__,
+                "version": "1.0.0", #TODO: get version
                 "type": "miner",
             },
             allow_val_change=True,
@@ -335,68 +334,68 @@ async def main(config: bt.config):
             logging.info(
                 f"Loading {config.pages_per_epoch} pages for training this epoch"
             )
-            random_pages = [
-                random.randint(1, pt.dataset.SubsetFalconLoader.max_pages)
-                for _ in range(config.pages_per_epoch)
-            ]
+            # random_pages = [
+            #     random.randint(1, pt.dataset.SubsetFalconLoader.max_pages)
+            #     for _ in range(config.pages_per_epoch)
+            # ]
 
             # Change this loader if you wish to use a different dataset
-            loader = pt.dataset.SubsetFineWebEdu2Loader(
-                batch_size=config.bs,
-                sequence_length=config.sl,
-                num_pages=config.pages_per_epoch,
-                tokenizer=tokenizer,
-            )
+            # loader = pt.dataset.SubsetFineWebEdu2Loader(
+            #     batch_size=config.bs,
+            #     sequence_length=config.sl,
+            #     num_pages=config.pages_per_epoch,
+            #     tokenizer=tokenizer,
+            # )
 
             # Enumerate over the data loader
             n_batches = 0
             optimizer.zero_grad()  # Initialize gradients to zero
 
-            for i, batch in enumerate(loader):
-                # Move the input batch to the device
-                inputs = batch.to(model.device)
+            # for i, batch in enumerate(loader):
+            #     # Move the input batch to the device
+            #     inputs = batch.to(model.device)
 
-                # Forward pass: compute the model output and loss
-                outputs = model(inputs, labels=inputs)
+            #     # Forward pass: compute the model output and loss
+            #     outputs = model(inputs, labels=inputs)
 
-                loss = outputs.loss / accumulation_steps  # Scale loss
-                loss.backward()  # Accumulate gradients
+            #     loss = outputs.loss / accumulation_steps  # Scale loss
+            #     loss.backward()  # Accumulate gradients
 
-                if (i + 1) % accumulation_steps == 0:
-                    n_acc_steps += 1
-                    optimizer.step()  # Perform a single optimization step
-                    optimizer.zero_grad()  # Clear gradients
-                    logging.info(
-                        f"Step: {n_acc_steps} loss: {outputs.loss.detach().item()}"
-                    )
-                    if use_wandb:
-                        wandb_run.log(
-                            {"loss": outputs.loss.detach(), "n_batches": n_batches},
-                            step=n_acc_steps,
-                        )
+            #     if (i + 1) % accumulation_steps == 0:
+            #         n_acc_steps += 1
+            #         optimizer.step()  # Perform a single optimization step
+            #         optimizer.zero_grad()  # Clear gradients
+            #         logging.info(
+            #             f"Step: {n_acc_steps} loss: {outputs.loss.detach().item()}"
+            #         )
+            #         if use_wandb:
+            #             wandb_run.log(
+            #                 {"loss": outputs.loss.detach(), "n_batches": n_batches},
+            #                 step=n_acc_steps,
+            #             )
 
-                torch.cuda.empty_cache()
+            #     torch.cuda.empty_cache()
 
-                n_batches += 1
-                global_step += 1
-                epoch_loss += outputs.loss.detach().item()
+            #     n_batches += 1
+            #     global_step += 1
+            #     epoch_loss += outputs.loss.detach().item()
 
-            # Calculate the average loss for the epoch
-            avg_loss = epoch_loss / n_batches
+            # # Calculate the average loss for the epoch
+            # avg_loss = epoch_loss / n_batches
 
-            # Log the average loss for the epoch
-            logging.info(f"Epoch: {epoch_step} average loss: {avg_loss}")
-            epoch_step += 1
+            # # Log the average loss for the epoch
+            # logging.info(f"Epoch: {epoch_step} average loss: {avg_loss}")
+            # epoch_step += 1
 
-            # Check if the average loss of this epoch is the best we've seen so far
-            if avg_loss < best_avg_loss:
-                best_avg_loss = avg_loss  # Update the best average loss
+            # # Check if the average loss of this epoch is the best we've seen so far
+            # if avg_loss < best_avg_loss:
+            #     best_avg_loss = avg_loss  # Update the best average loss
 
-                logging.info(f"New best average loss: {best_avg_loss}.")
+            #     logging.info(f"New best average loss: {best_avg_loss}.")
 
-                # Save the model to your mining dir.
-                logging.info(f"Saving model to path: {model_dir}.")
-                pt.mining.save(model, model_dir)
+            #     # Save the model to your mining dir.
+            #     logging.info(f"Saving model to path: {model_dir}.")
+            #     mining.save(model, model_dir)
 
         logging.info("Finished training")
         # Push the model to your run.
@@ -407,11 +406,11 @@ async def main(config: bt.config):
                 )
 
                 # First, reload the best model from the training run.
-                model_to_upload = pt.mining.load_local_model(
+                model_to_upload = mining.load_local_model(
                     model_dir, model_constraints.kwargs
                 )
 
-                await pt.mining.push(
+                await mining.push(
                     model_to_upload,
                     config.hf_repo_id,
                     wallet,
@@ -439,7 +438,7 @@ if __name__ == "__main__":
     config = get_config()
 
     if config.list_competitions:
-        print(constants.COMPETITION_SCHEDULE_BY_BLOCK)
+        print(competitions.COMPETITION_SCHEDULE_BY_BLOCK)
     else:
         print(config)
         asyncio.run(main(config))

@@ -6,6 +6,8 @@ from torch.utils.data import DataLoader
 from typing import Iterator, Tuple, Optional, Any, Dict
 
 from epochor.generators import CombinedGenerator
+from epochor.datasets.ids import DatasetId
+from epochor.generators.synthetic_v1 import SyntheticBenchmarkerV1
 
 # Attempt to import HuggingFace streaming IterableDataset
 try:
@@ -191,3 +193,34 @@ class DataLoaderFactory:
         raise TypeError(
             f"Unsupported source type for DataLoaderFactory: {type(source)}"
         )
+
+class DatasetLoaderFactory:
+    @staticmethod
+    def get_loader(
+        dataset_id: DatasetId,
+        dataset_kwargs: Dict[str, Any],
+        seed: int,
+    ) -> DataLoader:
+        """Loads data samples from the appropriate dataset."""
+
+        match dataset_id:
+            case DatasetId.UNIVARIATE_SYNTHETIC:
+                length = dataset_kwargs.get("sequence_length")
+                n_series = dataset_kwargs.get("n_series")
+                if length is None or n_series is None:
+                    raise ValueError("dataset_kwargs must contain 'length' and 'n_series' for UNIVARIATE_SYNTHETIC")
+                
+                bench = SyntheticBenchmarkerV1(length=length, n_series=n_series)
+                
+                num_batches = dataset_kwargs.get("num_batches") # Optional
+
+                dataset = SyntheticTimeSeriesDataset(
+                    bench=bench,
+                    start_seed=seed,
+                    num_batches=num_batches
+                )
+                
+                # SyntheticTimeSeriesDataset yields full batches, so batch_size=None for the DataLoader.
+                return DataLoader(dataset, batch_size=None, num_workers=0)
+            case _:
+                raise NotImplementedError(f"Dataset {dataset_id} not implemented.")

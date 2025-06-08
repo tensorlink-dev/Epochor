@@ -78,10 +78,9 @@ class Model:
     id: ModelId
 
     # The raw model object (e.g. a torch.nn.Module or any other class).
-    pt_model: Any
+    model: Any
 
     # Tokenizer is no longer managed by stores; always None.
-    tokenizer: Optional[Any] = None
 
 
 @dataclasses.dataclass

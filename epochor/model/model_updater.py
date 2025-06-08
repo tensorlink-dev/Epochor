@@ -47,24 +47,24 @@ class ModelUpdater:
 
         # 1) Parameter count
         total_params = sum(p.numel() for p in model.pt_model.parameters())
-        if not (constraints.min_params <= total_params <= constraints.max_params):
-            logging.debug(f"{model.id.name} parameter count {total_params} outside [{constraints.min_params}, {constraints.max_params}]")
+        if not (total_params <= constraints.max_params):
+            logging.debug(f"{model.id.name} parameter count {total_params} outside [{constraints.max_params}]")
             return False
 
         # 2) Allowed architectures
-        if type(model.pt_model) not in constraints.allowed_architectures:
-            logging.debug(f"{type(model.pt_model)} not in allowed architectures")
+        if type(model.model) not in constraints.model_cls:
+            logging.debug(f"{type(model.model)} not in allowed model classes")
             return False
 
         # 3) Optional norm checks
-        norm_cfg = constraints.norm_validation
-        if norm_cfg is not None:
-            return ModelUpdater._validate_layer_norms(
-                model.pt_model,
-                eps_soft=norm_cfg.eps_soft,
-                soft_pct=norm_cfg.soft_pct,
-                eps_hard=norm_cfg.eps_hard
-            )
+        #  norm_cfg = constraints.norm_validation
+        # if norm_cfg is not None:
+        #    return ModelUpdater._validate_layer_norms(
+        #        model.pt_model,
+        #         eps_soft=norm_cfg.eps_soft,
+        #         soft_pct=norm_cfg.soft_pct,
+        #        eps_hard=norm_cfg.eps_hard
+        #     )
 
         return True
 
