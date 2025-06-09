@@ -17,7 +17,7 @@ Silent Failures in miner.py
 The placeholder miner script uses pass within exception blocks when trying to serve the axon, which can hide critical startup failures.
 Suggestion: Replace pass with bt.logging.error(...) and consider a graceful exit if the axon fails to serve, to make failures obvious.
 Redundant Import in validator.py
-d
+
 The file imports CompetitionId from both competitions.data and epochor.competition.data, which is unnecessary and clutters the namespace.
 Suggestion: Remove the from competitions.data import CompetitionId import and use the existing import from epochor.
 Unclear Function Origin in validator.py
