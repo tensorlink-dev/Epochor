@@ -6,13 +6,31 @@ import os
 import pickle
 import logging
 import typing
+import threading
+import time
+import datetime as dt
+import copy
+import asyncio
+import traceback
+import math
+from collections import defaultdict
 
 import bittensor as bt
+import torch
 
 from epochor import constants
 from epochor import utils
 from epochor.ema_tracker import EMATracker
 from epochor.model.model_tracker import ModelTracker
+from epochor.model.model_updater import MinerMisconfiguredError
+from epochor.model.data import EvalResult
+from epochor.competition.data import EpsilonFunc
+from epochor.utils import metagraph_utils
+from taoverse.utilities.perf_monitor import PerfMonitor
+from competitions.data import CompetitionId
+from epochor.competition import utils as competition_utils
+from epochor.model.storage.disk_model_store import DiskModelStore # Import DiskModelStore
+
 
 
 class ValidatorState:
@@ -21,7 +39,7 @@ class ValidatorState:
     UIDS_FILENAME = "uids.pickle"
     VERSION_FILENAME = "version.txt"
 
-    def __init__(self, base_dir: str):
+    def __init__(self, base_dir: str, metagraph_lock: threading.RLock):
         self.base_dir = base_dir
         self.uids_filepath = os.path.join(base_dir, ValidatorState.UIDS_FILENAME)
         self.model_tracker_filepath = os.path.join(
@@ -34,6 +52,12 @@ class ValidatorState:
 
         self.model_tracker = ModelTracker()
         self.ema_tracker = EMATracker(alpha=constants.alpha)
+
+        self.uids_to_eval: typing.Dict[int, typing.Set] = defaultdict(set)
+        self.pending_uids_to_eval: typing.Dict[int, typing.Set] = defaultdict(set)
+        self.pending_uids_to_eval_lock = threading.RLock()
+        self.metagraph_lock = metagraph_lock
+
 
     def load(self):
         # Check if the version has changed since we last restarted.
@@ -83,8 +107,8 @@ class ValidatorState:
         # Initialize the UIDs to eval.
         if not os.path.exists(self.uids_filepath):
             logging.warning("No uids state file found. Starting from scratch.")
-            self.uids_to_eval: typing.Dict[int, typing.Set] = {}
-            self.pending_uids_to_eval: typing.Dict[int, typing.Set] = {}
+            self.uids_to_eval = defaultdict(set)
+            self.pending_uids_to_eval = defaultdict(set)
         else:
             try:
                 with open(self.uids_filepath, "rb") as f:
@@ -94,8 +118,8 @@ class ValidatorState:
                 logging.warning(
                     f"Failed to load uids to eval state. Reason: {e}. Starting from scratch."
                 )
-                self.uids_to_eval: typing.Dict[int, typing.Set] = {}
-                self.pending_uids_to_eval: typing.Dict[int, typing.Set] = {}
+                self.uids_to_eval = defaultdict(set)
+                self.pending_uids_to_eval = defaultdict(set)
                 # We also need to wipe the model tracker state in this case to ensure we re-evaluate all the models.
                 self.model_tracker = ModelTracker()
                 if os.path.exists(self.model_tracker_filepath):
@@ -104,79 +128,98 @@ class ValidatorState:
                     )
                     os.remove(self.model_tracker_filepath)
 
-    def save(self, uids_to_eval, pending_uids_to_eval):
+    def save(self):
         logging.trace("Saving validator state.")
         os.makedirs(self.base_dir, exist_ok=True)
 
-        # Save the state of the validator uids to file.
-        with open(self.uids_filepath, "wb") as f:
-            pickle.dump(uids_to_eval, f)
-            pickle.dump(pending_uids_to_eval, f)
+        with self.pending_uids_to_eval_lock:
+            # Save the state of the validator uids to file.
+            with open(self.uids_filepath, "wb") as f:
+                pickle.dump(self.uids_to_eval, f)
+                pickle.dump(self.pending_uids_to_eval, f)
 
         # Save the state of the trackers to file.
         self.model_tracker.save_state(self.model_tracker_filepath)
         self.ema_tracker.save_state(self.competition_tracker_filepath)
 
-import asyncio
-import copy
-import dataclasses
-import datetime as dt
-import functools
-import json
-import logging
-import math
-import os
-import pickle
-import random
-import threading
-import time
-import traceback
-import typing
-from collections import defaultdict
-from itertools import cycle
-from typing import Any
+    def get_uids_to_eval(self, competition_id: int) -> typing.Set[int]:
+        with self.pending_uids_to_eval_lock:
+            return copy.deepcopy(self.uids_to_eval.get(competition_id, set()))
 
-import bittensor as bt
-import torch
-import wandb
-from retry import retry
-from rich.console import Console
-from rich.table import Table
+    def get_pending_uids_to_eval(self, competition_id: int) -> typing.Set[int]:
+        with self.pending_uids_to_eval_lock:
+            return copy.deepcopy(self.pending_uids_to_eval.get(competition_id, set()))
 
-# Epochor Imports
-from epochor import constants
-from epochor import utils
-from neurons import config
-from epochor.competition import utils as competition_utils 
-from epochor.competition.data import Competition, CompetitionId, EpsilonFunc
-from epochor.dataloaders import DatasetLoaderFactory
-from epochor.ema_tracker import EMATracker
-from epochor.evaluation import Evaluator
-from epochor.model.data import EvalResult, ScoreDetails
-from epochor.rewards import compute_scores
-from epochor.model.storage.disk_model_store import DiskModelStore
-from epochor.model.storage.hf_model_store import HuggingFaceModelStore
-from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
-from epochor.model.model_tracker import ModelTracker
-from epochor.model.model_updater import ModelUpdater, MinerMisconfiguredError
-from epochor.utils import metagraph_utils
-from epochor.utils.logging import configure_logging, reinitialize_logging
-from taoverse.utilities.perf_monitor import PerfMonitor
-from taoverse.metagraph.metagraph_syncer import MetagraphSyncer
-from taoverse.metagraph.miner_iterator import MinerIterator
-from competitions.data import CompetitionId
-import constants
+    def add_pending_uid_to_eval(self, competition_id: int, uid: int):
+         with self.pending_uids_to_eval_lock:
+            self.pending_uids_to_eval[competition_id].add(uid)
+
+    def update_uids_to_eval(self, competition_id: int, uids_to_keep: typing.Set[int], active_competitions: typing.Set[int]):
+        with self.pending_uids_to_eval_lock:
+            self.uids_to_eval[competition_id] = uids_to_keep
+
+            # Clean up sunset competitions.
+            # This works as expected even though the keys are CompetitionIds and active_competitions are ints.
+            comps_to_delete = (
+                set(self.uids_to_eval.keys()) | set(self.pending_uids_to_eval.keys())
+            ) - active_competitions
+            for comp in comps_to_delete:
+                logging.debug(
+                    f"Cleaning up uids to eval from sunset competition {comp}."
+                )
+                if comp in self.uids_to_eval:
+                    del self.uids_to_eval[comp]
+                if comp in self.pending_uids_to_eval:
+                    del self.pending_uids_to_eval[comp]
+
+    def get_pending_and_current_uid_counts(self) -> typing.Tuple[int, int]:
+        """Gets the total number of uids pending eval and currently being evaluated across all competitions.
+
+        Returns:
+            typing.Tuple[int, int]: Pending uid count, Current uid count.
+        """
+        pending_uid_count = 0
+        current_uid_count = 0
+
+        with self.pending_uids_to_eval_lock:
+            # Loop through the uids across all competitions.
+            for uids in self.pending_uids_to_eval.values():
+                pending_uid_count += len(uids)
+            for uids in self.uids_to_eval.values():
+                current_uid_count += len(uids)
+
+        return pending_uid_count, current_uid_count
+
+    def get_ema_scores(self, competition_id: int):
+        return self.ema_tracker.get(competition_id=competition_id)
+
+    def update_ema_scores(self, scores_for_ema: EpsilonFunc, competition_id: int):
+        self.ema_tracker.update(scores_for_ema, competition_id=competition_id)
+
+    def reset_ema_uid(self, competition_id: int, uid: int):
+        self.ema_tracker.reset_uid(competition_id=competition_id, uid=uid)
+
+    def reset_ema_hotkey_score(self, hotkey: str):
+        self.ema_tracker.reset_score_for_hotkey(hotkey=hotkey)
+
+    def reset_ema_competitions(self, active_competition_ids: typing.Set[int]):
+        self.ema_tracker.reset_competitions(active_competition_ids)
+
+
 
 class ModelManager:
-    def __init__(self, model_updater, model_tracker, miner_iterator, metagraph):
+    def __init__(self, model_updater, model_tracker, miner_iterator, metagraph, state: ValidatorState, metagraph_lock: threading.RLock, local_store: DiskModelStore, get_current_block_fn: typing.Callable[[], int]):
         self.model_updater = model_updater
         self.model_tracker = model_tracker
         self.miner_iterator = miner_iterator
         self.metagraph = metagraph
+        self.state = state
         self.stop_event = threading.Event()
         self.update_thread = threading.Thread(target=self.update_models, daemon=True)
         self.clean_thread = threading.Thread(target=self.clean_models, daemon=True)
-        self.metagraph_lock = threading.RLock()
+        self.metagraph_lock = metagraph_lock
+        self.local_store = local_store
+        self.get_current_block = get_current_block_fn
 
     def start(self):
         self.update_thread.start()
@@ -222,9 +265,7 @@ class ModelManager:
 
                 # Confirm that we haven't already checked it within the chain update cadence.
                 time_diff = (
-                    dt.datetime.now() - uid_last_checked_sequential[next_uid]
-                    if next_uid in uid_last_checked_sequential
-                    else None
+                    dt.datetime.now() - uid_last_checked_sequential.get(next_uid, dt.datetime.min)
                 )
                 if time_diff and time_diff < constants.chain_update_cadence:
                     # If we have seen it within chain update cadence then sleep until it has been at least that long.
@@ -237,7 +278,7 @@ class ModelManager:
                     time.sleep(time_to_sleep)
 
                 uid_last_checked_sequential[next_uid] = dt.datetime.now()
-                curr_block = self._get_current_block()
+                curr_block = self.get_current_block()
 
                 # Get their hotkey from the metagraph.
                 with self.metagraph_lock:
@@ -251,16 +292,8 @@ class ModelManager:
 
                 if model_metadata:
                     # Check if the model is already queued for eval.
-                    is_queued_for_eval = False
-                    #with self.pending_uids_to_eval_lock:
-                    #    is_queued_for_eval = (
-                    #        next_uid
-                    #        in self.pending_uids_to_eval[
-                    #            model_metadata.id.competition_id
-                    #        ]
-                    #        or next_uid
-                    #        in self.uids_to_eval[model_metadata.id.competition_id]
-                    #    )
+                    is_queued_for_eval = next_uid in self.state.get_pending_uids_to_eval(model_metadata.id.competition_id) or \
+                                         next_uid in self.state.get_uids_to_eval(model_metadata.id.competition_id)
 
                     competition = competition_utils.get_competition_for_block(
                         model_metadata.id.competition_id,
@@ -313,34 +346,17 @@ class ModelManager:
                         hotkey
                     )
                     if metadata is not None:
-                        #with self.pending_uids_to_eval_lock:
-                        #    self.pending_uids_to_eval[metadata.id.competition_id].add(
-                        #        next_uid
-                        #    )
-                        #    logging.debug(
-                        #        f"Found a new model for UID={next_uid} for competition {metadata.id.competition_id}. It will be evaluated on the next loop."
-                        #    )
-                        pass
+                        self.state.add_pending_uid_to_eval(metadata.id.competition_id, next_uid)
+                        logging.debug(
+                            f"Found a new model for UID={next_uid} for competition {metadata.id.competition_id}. It will be evaluated on the next loop."
+                        )
                     else:
                         logging.warning(
                             f"Failed to find metadata for uid {next_uid} with hotkey {hotkey}"
                         )
                     # inside the `if updated:` block, after you know this `uid` got a fresh model
-                    #self.ema_tracker.reset_uid(
-                    #    competition_id = metadata.id.competition_id,
-                    #    uid = next_uid
-                    #)
-                    pass
+                    self.state.reset_ema_uid(metadata.id.competition_id, next_uid)
 
-            except InvalidStatus as e:
-                logging.info(
-                    f"Websocket exception in update loop: {e}. Waiting 3 minutes."
-                )
-                time.sleep(180)
-            except (RepositoryNotFoundError, RevisionNotFoundError) as e:
-                logging.trace(e)
-            except MinerMisconfiguredError as e:
-                logging.trace(e)
             except Exception as e:
                 logging.error(f"Error in update loop: {e} 
  {traceback.format_exc()}")
@@ -349,21 +365,16 @@ class ModelManager:
 
     def _wait_for_open_eval_slot(self) -> None:
         """Waits until there is at least one slot open to download and evaluate a model."""
-        #pending_uid_count, current_uid_count = self.get_pending_and_current_uid_counts()
-        pending_uid_count = 0
-        current_uid_count = 0
+        pending_uid_count, current_uid_count = self.state.get_pending_and_current_uid_counts()
 
-        while pending_uid_count + current_uid_count >= 10:#self.config.updated_models_limit:
+        while pending_uid_count + current_uid_count >= constants.updated_models_limit:
             # Wait 5 minutes for the eval loop to process them.
             logging.info(
                 f"Update loop: There are already {pending_uid_count + current_uid_count} synced models pending eval. Checking again in 5 minutes."
             )
             time.sleep(300)
             # Check to see if the pending uids have been cleared yet.
-            #pending_uid_count, current_uid_count = (
-            #    self.get_pending_and_current_uid_counts()
-            #)
-            pass
+            pending_uid_count, current_uid_count = self.state.get_pending_and_current_uid_counts()
 
     def _queue_top_models_for_eval(self) -> None:
         # Take a deep copy of the metagraph for use in the top uid retry check.
@@ -378,25 +389,25 @@ class ModelManager:
             constants.WEIGHT_SYNC_VALI_MIN_STAKE,
             constants.WEIGHT_SYNC_MINER_MIN_PERCENT,
         )
-        
-        #with self.pending_uids_to_eval_lock:
-        #    all_uids_to_eval = set()
-        #    all_pending_uids_to_eval = set()
-        #    # Loop through the uids across all competitions.
-        #    for uids in self.uids_to_eval.values():
-        #        all_uids_to_eval.update(uids)
-        #    for uids in self.pending_uids_to_eval.values():
-        #        all_pending_uids_to_eval.update(uids)
 
-        #    # Reduce down to top models that are not in any competition yet.
-        #    uids_to_add = top_miner_uids - all_uids_to_eval - all_pending_uids_to_eval
-        uids_to_add = []
+        all_uids_to_eval = set()
+        all_pending_uids_to_eval = set()
+        # Loop through the uids across all competitions.
+        with self.state.pending_uids_to_eval_lock:
+             for uids in self.state.uids_to_eval.values():
+                all_uids_to_eval.update(uids)
+             for uids in self.state.pending_uids_to_eval.values():
+                all_pending_uids_to_eval.update(uids)
 
+        # Reduce down to top models that are not in any competition yet.
+        uids_to_add = top_miner_uids - all_uids_to_eval - all_pending_uids_to_eval
+
+        curr_block = self.get_current_block()
         for uid in uids_to_add:
             # Check when we last evaluated this model.
             hotkey = metagraph.hotkeys[uid]
             last_eval_block = self.model_tracker.get_block_last_evaluated(hotkey) or 0
-            curr_block = self._get_current_block()
+
             if curr_block - last_eval_block >= constants.model_retry_cadence:
                 try:
                     # It's been long enough - redownload this model and schedule it for eval.
@@ -442,11 +453,8 @@ class ModelManager:
                         logging.trace(
                             f"Shortcutting to top model or retrying evaluation for previously discarded top model with incentive for UID={uid}"
                         )
-                        #with self.pending_uids_to_eval_lock:
-                        #    self.pending_uids_to_eval[
-                        #        top_model_metadata.id.competition_id
-                        #    ].add(uid)
-                        pass
+                        self.state.add_pending_uid_to_eval(top_model_metadata.id.competition_id, uid)
+
                     else:
                         logging.warning(
                             f"Failed to find metadata for uid {uid} with hotkey {hotkey}"
@@ -480,18 +488,18 @@ class ModelManager:
                 }
 
                 # Find all hotkeys that are currently being evaluated or pending eval.
-                #uids_to_keep = set()
-                #with self.pending_uids_to_eval_lock:
-                #    for pending_uids in self.pending_uids_to_eval.values():
-                #        uids_to_keep.update(pending_uids)
-                #    for eval_uids in self.uids_to_eval.values():
-                #        uids_to_keep.update(eval_uids)
-                uids_to_keep = []
+                uids_to_keep = set()
+                with self.state.pending_uids_to_eval_lock:
+                    for pending_uids in self.state.pending_uids_to_eval.values():
+                        uids_to_keep.update(pending_uids)
+                    for eval_uids in self.state.uids_to_eval.values():
+                        uids_to_keep.update(eval_uids)
 
                 hotkeys_to_keep = set()
                 with self.metagraph_lock:
                     for uid in uids_to_keep:
-                        hotkeys_to_keep.add(self.metagraph.hotkeys[uid])
+                        if uid < len(self.metagraph.hotkeys):
+                             hotkeys_to_keep.add(self.metagraph.hotkeys[uid])
 
                 # Only keep those hotkeys.
                 evaluated_hotkeys_to_model_id = {
@@ -500,11 +508,11 @@ class ModelManager:
                     if hotkey in hotkeys_to_keep
                 }
 
-                #self.local_store.delete_unreferenced_models(
-                #    valid_models_by_hotkey=evaluated_hotkeys_to_model_id,
-                #    grace_period_seconds=600,
-                #)
-                pass
+                self.local_store.delete_unreferenced_models(
+                    valid_models_by_hotkey=evaluated_hotkeys_to_model_id,
+                    grace_period_seconds=600,
+                )
+
             except Exception as e:
                 logging.error(f"Error in clean loop: {e}")
 
@@ -513,35 +521,20 @@ class ModelManager:
 
         logging.info("Exiting clean models loop.")
 
-    def _get_current_block(self) -> int:
-        """Returns the current block."""
 
-        @retry(tries=5, delay=1, backoff=2)
-        def _get_block_with_retry():
-            #return self.subtensor.block
-            return 1
-
-        try:
-            return _get_block_with_retry()
-        except:
-            logging.debug(
-                "Failed to get the latest block from the chain. Using the block from the cached metagraph."
-            )
-            # Network call failed. Fallback to using the block from the metagraph,
-            # even though it'll be a little stale.
-            with self.metagraph_lock:
-                return self.metagraph.block.item()
 
 
 class WeightSetter:
-    def __init__(self, subtensor, wallet, netuid, weights):
+    def __init__(self, subtensor: bt.subtensor, wallet: bt.wallet, netuid: int, metagraph: bt.metagraph, weights: torch.Tensor, metagraph_lock: threading.RLock):
         self.subtensor = subtensor
         self.wallet = wallet
         self.netuid = netuid
+        self.metagraph = metagraph
         self.weights = weights
         self.stop_event = threading.Event()
         self.weight_thread = threading.Thread(target=self.set_weights, daemon=True)
-        self.metagraph_lock = threading.RLock()
+        self.metagraph_lock = metagraph_lock
+        self.weight_lock = threading.RLock()
 
     def start(self):
         self.weight_thread.start()
@@ -555,14 +548,16 @@ class WeightSetter:
 
         # Check that we have some weights internally for startup situations.
         all_zero_weights = True
+        with self.weight_lock:
+             all_zero_weights = torch.all(self.weights == 0)
+
         while all_zero_weights is True:
-            # Technically returns a tensor but it evaluates to true.
-            with self.metagraph_lock:
-                all_zero_weights = torch.all(self.weights == 0)
             logging.trace(
                 "Waiting 60 seconds for internal weights before continuing to try set weights."
             )
             time.sleep(60)
+            with self.weight_lock:
+                 all_zero_weights = torch.all(self.weights == 0)
 
         while not self.stop_event.is_set():
             try:
@@ -586,18 +581,18 @@ class WeightSetter:
         """Sets the weights on the chain with ttl, without raising exceptions if it times out."""
 
         async def _try_set_weights() -> typing.Tuple[bool, str]:
-            with self.metagraph_lock:
-                uids = [1] #self.metagraph.uids
             try:
-                #with self.weight_lock:
-                self.weights.nan_to_num(0.0)
-                weights_to_set = self.weights
+                with self.metagraph_lock:
+                    uids = self.metagraph.uids
+                with self.weight_lock:
+                    self.weights.nan_to_num(0.0)
+                    weights_to_set = self.weights
 
                 return self.subtensor.set_weights(
                     netuid=self.netuid,
                     wallet=self.wallet,
                     uids=uids,
-                    weights=weights_to_set.numpy(),
+                    weights=weights_to_set,
                     wait_for_inclusion=True,
                     version_key=constants.weights_version_key,
                     max_retries=1,
