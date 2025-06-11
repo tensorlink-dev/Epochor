@@ -5,8 +5,21 @@ Evaluator base and CRPS-like evaluator for Epochor subnet.
 """
 
 import numpy as np
-from typing import Any
 from epochor.config import EPOCHOR_CONFIG
+
+
+def crps(target: np.ndarray, prediction: np.ndarray) -> np.ndarray:
+    """
+    Computes the Continuous Ranked Probability Score (CRPS).
+
+    Args:
+        target (np.ndarray): The ground truth values.
+        prediction (np.ndarray): The predicted values.
+
+    Returns:
+        np.ndarray: The CRPS score for each prediction.
+    """
+    return np.mean((prediction - target) ** 2, axis=-1)
 
 
 class BaseEvaluator:

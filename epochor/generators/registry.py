@@ -26,7 +26,7 @@ from .v1.synthetic import (
     generate_exponential_trend,
     generate_logistic_growth,
     generate_damped_harmonic,
-    generate_amplitude_modulated_sinusoid, # New
+    generate_amplitude_modulated_sinusoid,
 )
 from .statistical import (
     generate_ar,
@@ -40,11 +40,11 @@ from .statistical import (
     generate_hmm,
     generate_msar,
     generate_tar,
-    generate_random_walk, # New
-    generate_seasonal_random_walk, # New
-    generate_egarch, # New
-    generate_tgarch, # New
-    generate_levy_flight, # New
+    generate_random_walk,
+    generate_seasonal_random_walk,
+    generate_egarch,
+    generate_tgarch,
+    generate_levy_flight,
 )
 from .chaotic import (
     generate_lorenz,
@@ -57,8 +57,8 @@ from .mechanistic import (
     generate_lotka_volterra,
     generate_sir,
     generate_heat_equation,
-    generate_local_linear_trend, # New
-    generate_holt_winters, # New
+    generate_local_linear_trend,
+    generate_holt_winters,
 )
 from .gp import (
     generate_gaussian_process,

@@ -5,7 +5,7 @@ A benchmarker provides a standardized interface for preparing evaluation data
 and evaluating a model against that data to produce a set of scores.
 """
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Dict
 
 import numpy as np # Third-party import
 

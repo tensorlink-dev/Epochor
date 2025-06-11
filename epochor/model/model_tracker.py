@@ -1,14 +1,15 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import pickle
 import threading
 
-from epochor.model.data import ModelMetadata
+from epochor.model.data import ModelMetadata, EvalResult
 
 class ModelTracker:
     """Tracks the current model metadata for each miner."""
 
     def __init__(self):
         self.miner_hotkey_to_model_metadata: Dict[str, ModelMetadata] = {}
+        self.miner_hotkey_to_eval_results: Dict[str, Dict[int, List[EvalResult]]] = {}
         self.lock = threading.RLock()
 
     def on_hotkeys_updated(self, hotkeys: set[str]):
@@ -18,16 +19,46 @@ class ModelTracker:
             for hotkey in list(self.miner_hotkey_to_model_metadata.keys()):
                 if hotkey not in hotkeys:
                     del self.miner_hotkey_to_model_metadata[hotkey]
+            for hotkey in list(self.miner_hotkey_to_eval_results.keys()):
+                if hotkey not in hotkeys:
+                    del self.miner_hotkey_to_eval_results[hotkey]
 
     def on_model_updated(self, hotkey: str, metadata: ModelMetadata):
         """Called when a new model is downloaded for a specific miner."""
         with self.lock:
             self.miner_hotkey_to_model_metadata[hotkey] = metadata
 
+    def on_model_evaluated(self, hotkey: str, competition_id: int, eval_result: EvalResult):
+        """Called when a model is evaluated."""
+        with self.lock:
+            if hotkey not in self.miner_hotkey_to_eval_results:
+                self.miner_hotkey_to_eval_results[hotkey] = {}
+            if competition_id not in self.miner_hotkey_to_eval_results[hotkey]:
+                self.miner_hotkey_to_eval_results[hotkey][competition_id] = []
+            self.miner_hotkey_to_eval_results[hotkey][competition_id].append(eval_result)
+
     def get_model_metadata_for_miner_hotkey(self, hotkey: str) -> Optional[ModelMetadata]:
         """Returns the model metadata for a specific miner, or None if not found."""
         with self.lock:
             return self.miner_hotkey_to_model_metadata.get(hotkey)
+
+    def get_eval_results_for_miner_hotkey(self, hotkey: str, competition_id: int) -> List[EvalResult]:
+        """Returns the evaluation results for a specific miner and competition."""
+        with self.lock:
+            return self.miner_hotkey_to_eval_results.get(hotkey, {}).get(competition_id, [])
+
+    def get_block_last_evaluated(self, hotkey: str) -> Optional[int]:
+        """Returns the block number of the last evaluation for a specific miner."""
+        with self.lock:
+            if hotkey in self.miner_hotkey_to_eval_results and self.miner_hotkey_to_eval_results[hotkey]:
+                # Assuming the last result is the most recent.
+                # Find the competition with the most recent eval
+                last_eval_block = 0
+                for results in self.miner_hotkey_to_eval_results[hotkey].values():
+                    if results:
+                        last_eval_block = max(last_eval_block, results[-1].block)
+                return last_eval_block
+            return None
 
     def get_miner_hotkey_to_model_metadata_dict(self) -> Dict[str, ModelMetadata]:
         """Returns a copy of the mapping from hotkey to model metadata."""
@@ -39,8 +70,22 @@ class ModelTracker:
         with self.lock:
             with open(filepath, "wb") as f:
                 pickle.dump(self.miner_hotkey_to_model_metadata, f)
+                pickle.dump(self.miner_hotkey_to_eval_results, f)
 
     def load_state(self, filepath: str):
         """Loads the state of the model tracker from a file."""
         with open(filepath, "rb") as f:
             self.miner_hotkey_to_model_metadata = pickle.load(f)
+            self.miner_hotkey_to_eval_results = pickle.load(f)
+
+    def get_block_last_evaluated(self, hotkey: str) -> Optional[int]:
+        """Returns the block number of the last evaluation for a specific miner."""
+        with self.lock:
+            if hotkey in self.miner_hotkey_to_eval_results and self.miner_hotkey_to_eval_results[hotkey]:
+                # Find the competition with the most recent eval
+                last_eval_block = 0
+                for results in self.miner_hotkey_to_eval_results[hotkey].values():
+                    if results:
+                        last_eval_block = max(last_eval_block, results[-1].block)
+                return last_eval_block
+            return None

@@ -8,8 +8,8 @@ import bittensor as bt
 import logging
 
 from epochor.model.data import ModelId, ModelMetadata
-from epochor.storage.model_metadata_store import ModelMetadataStore
-from epochor.utils.run_utils import run_in_thread  # helper to offload sync calls
+from epochor.model.base_metadata_model_store import ModelMetadataStore
+from epochor.utils.misc import run_in_thread  # helper to offload sync calls
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class ChainModelMetadataStore(ModelMetadataStore):
             self.wallet, self.subnet_uid, data
         )
         # Offload blocking call with timeout
-        await run_in_thread(commit_fn, timeout=ttl)
+        await run_in_thread(commit_fn, ttl=ttl)
 
     async def retrieve_model_metadata(
         self,
@@ -57,7 +57,7 @@ class ChainModelMetadataStore(ModelMetadataStore):
         get_meta_fn = lambda: bt.core.extrinsics.serving.get_metadata(
             self.subtensor, self.subnet_uid, hotkey
         )
-        meta = await run_in_thread(get_meta_fn, timeout=ttl)
+        meta = await run_in_thread(get_meta_fn, ttl=ttl)
         if not meta:
             return None
 
@@ -65,7 +65,7 @@ class ChainModelMetadataStore(ModelMetadataStore):
         get_commit_fn = lambda: self.subtensor.get_commitment(
             self.subnet_uid, uid
         )
-        commit_str = await run_in_thread(get_commit_fn, timeout=ttl)
+        commit_str = await run_in_thread(get_commit_fn, ttl=ttl)
 
         # 3) parse ModelId
         try:
@@ -97,5 +97,3 @@ async def _test_roundtrip():
 
 if __name__ == "__main__":
     asyncio.run(_test_roundtrip())
-
-

@@ -9,16 +9,17 @@ import epochor.utils.logging as logging
 from epochor.model.data import Model, ModelId
 from epochor.model.competition.data import ModelConstraints
 from epochor.model.storage.disk import utils
-from epochor.model.storage.local_model_store import LocalModelStore
+from epochor.model.base_disk_model_store import LocalModelStore
 from epochor.utils.hashing import hash_directory
 
 class DiskModelStore(LocalModelStore):
     """Local storage–based implementation for storing and retrieving a model on disk."""
 
     def __init__(self, base_dir: str, safe_format: str = "safetensors"):
-        super().__init__(local_dir=base_dir, safe_format=safe_format)
+        super().__init__()
         os.makedirs(utils.get_local_miners_dir(base_dir), exist_ok=True)
         self.base_dir = base_dir
+        self.safe_format = safe_format
 
     def get_path(self, hotkey: str) -> str:
         """Returns the root path for this hotkey’s models."""
@@ -30,8 +31,8 @@ class DiskModelStore(LocalModelStore):
         os.makedirs(save_directory, exist_ok=True)
 
         save_hf(
-            model=model.pt_model,
-            config=model.config,
+            model=model.model,
+            config=model.model.config,
             save_directory=save_directory,
             safe=self.safe_format == "safetensors",
         )
@@ -86,13 +87,11 @@ class DiskModelStore(LocalModelStore):
             model_cls=model_constraints.model_cls,
             config_cls=model_constraints.config_cls,
             safe=self.safe_format == "safetensors",
-            **model_constraints.load_kwargs
         )
 
         return Model(
             id=model_id,
-            pt_model=pt_model,
-            config=pt_model.config
+            model=pt_model,
         )
 
     def delete_unreferenced_models(

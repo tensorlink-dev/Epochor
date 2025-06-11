@@ -17,6 +17,7 @@ from collections import defaultdict
 
 import bittensor as bt
 import torch
+import numpy
 
 from epochor import constants
 from epochor import utils
@@ -328,7 +329,7 @@ class ModelManager:
                         )
                     )
                 except MinerMisconfiguredError as e:
-                    self.model_tracker.on_model_evaluated(
+                    self.model_tracker.on_model_updated(
                         hotkey,
                         0,  # Technically this is B7 but that is unused.
                         EvalResult(
@@ -423,7 +424,7 @@ class ModelManager:
                             )
                         )
                     except MinerMisconfiguredError as e:
-                        self.model_tracker.on_model_evaluated(
+                        self.model_tracker.on_model_updated(
                             hotkey,
                             0,  # Technically this is B7 but that is unused.
                             EvalResult(
@@ -532,61 +533,13 @@ class WeightSetter:
         self.metagraph = metagraph
         self.weights = weights
         self.stop_event = threading.Event()
-        self.weight_thread = threading.Thread(target=self.set_weights, daemon=True)
-        self.metagraph_lock = metagraph_lock
-        self.weight_lock = threading.RLock()
-
-    def start(self):
-        self.weight_thread.start()
-
-    def stop(self):
-        self.stop_event.set()
-        self.weight_thread.join()
-
-    def set_weights(self):
-        """Set weights on the chain regularly."""
-
-        # Check that we have some weights internally for startup situations.
-        all_zero_weights = True
-        with self.weight_lock:
-             all_zero_weights = torch.all(self.weights == 0)
-
-        while all_zero_weights is True:
-            logging.trace(
-                "Waiting 60 seconds for internal weights before continuing to try set weights."
-            )
-            time.sleep(60)
-            with self.weight_lock:
-                 all_zero_weights = torch.all(self.weights == 0)
-
-        while not self.stop_event.is_set():
-            try:
-                set_weights_success = False
-                while not set_weights_success:
-                    set_weights_success, _ = asyncio.run(self.try_set_weights(ttl=60))
-                    # Wait for 120 seconds before we try to set weights again.
-                    if set_weights_success:
-                        logging.info("Successfully set weights.")
-                    else:
-                        time.sleep(120)
-            except Exception as e:
-                logging.error(f"Error in set weights: {e}")
-
-            # Only set weights once every hour
-            time.sleep(60 * 60)
-
-        logging.info("Exiting set weights loop.")
-
-    async def try_set_weights(self, ttl: int) -> typing.Tuple[bool, str]:
-        """Sets the weights on the chain with ttl, without raising exceptions if it times out."""
-
-        async def _try_set_weights() -> typing.Tuple[bool, str]:
+        self.weight_thread = threading.Thread(target=self.set_weights, daemon=_try_set_weights() -> typing.Tuple[bool, str]:
             try:
                 with self.metagraph_lock:
                     uids = self.metagraph.uids
                 with self.weight_lock:
                     self.weights.nan_to_num(0.0)
-                    weights_to_set = self.weights
+                    weights_to_set = self.weights.numpy()
 
                 return self.subtensor.set_weights(
                     netuid=self.netuid,

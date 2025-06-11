@@ -24,7 +24,6 @@ from typing import Optional, Union
 import bittensor as bt
 import huggingface_hub
 import torch
-from safetensors.torch import load_model
 from transformers import PreTrainedModel
 
 from epochor import constants, logging
@@ -36,7 +35,6 @@ from epochor.model.model_data import Model, ModelId
 from epochor.model.model_utils import get_hash_of_two_strings
 from epochor.model.storage.hf_model_store import HuggingFaceModelStore
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
-from epochor.generators.registry import GeneratorFactory
 
 
 def model_path(base_dir: str, run_id: str) -> str:

@@ -8,7 +8,11 @@ from colorama import Back, Fore, Style
 
 # Add a trace level.
 _TRACE = 5
+BITTENSOR_LOGGER_NAME = "bittensor_logger"
 
+def all_loggers():
+    """Returns a list of all logger instances."""
+    return [logging.getLogger(name) for name in logging.root.manager.loggerDict]
 
 class ColorFormatter(logging.Formatter):
     """
@@ -68,7 +72,7 @@ def _initialize_once() -> None:
 _initialize_once()
 
 
-def reinitialize() -> None:
+def reinitialize_logging() -> None:
     """Reinitializes the logger and handlers.
 
     Bittensor <= 8.5.0 currently deletes all other loggers handlers so this should be called after the bt logger has been imported / initialized.
@@ -88,6 +92,17 @@ def reinitialize() -> None:
     _handler.setFormatter(ColorFormatter())
     _LOGGER.addHandler(_handler)
 
+
+def configure_logging(config) -> None:
+    """Configures the Taoverse logger from a bittensor config."""
+
+    logging_config = getattr(config, "logging", None)
+    if logging_config and logging_config.trace:
+        set_verbosity_trace()
+    elif logging_config and logging_config.debug:
+        set_verbosity_debug()
+    else:
+        set_verbosity_info()
 
 def set_verbosity(verbosity: int) -> None:
     _LOGGER.setLevel(verbosity)

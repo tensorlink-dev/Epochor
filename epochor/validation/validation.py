@@ -21,20 +21,21 @@
 import dataclasses
 import math
 import typing
+import numpy as np
 
-import taoverse.utilities.logging as logging
+import epochor.utils.logging as logging
 import torch
-from taoverse.model.competition.epsilon import EpsilonFunc
-from taoverse.model.data import Model
-from taoverse.model.eval.normalization import normalize_score
-from taoverse.model.eval.task import EvalTask
-
-from pretrain.eval.method import (
-    EvalMethodId,
-    compute_text_loss,
-    compute_wer
+from epochor.competition.epsilon import EpsilonFunc
+from epochor.model.data import Model
+from epochor.evaluation.eval_task import EvalTask
+from epochor.config import EPOCHOR_CONFIG
+from epochor.evaluation.evaluation import CRPSEvaluator
+from epochor.validation.statistics import (
+    compute_overall_win_rate,
+    compute_ci_bounds,
+    compute_aggregate_gap,
+    normalize_gap_scores,
 )
-from pretrain.eval.sample import EvalSample
 
 
 
@@ -52,8 +53,6 @@ class ScoreDetails:
 def compute_scores(
     uids: typing.List[int],
     uid_to_score: typing.Dict[int, float],
- #   uid_to_block: typing.Dict[int, int],
- #   current_block: int,
 ) -> typing.Tuple[typing.Dict[int, int], typing.Dict[int, float]]:
     """
     Computes the wins and win rate for each model based on loss comparison.
@@ -61,17 +60,12 @@ def compute_scores(
     Parameters:
         uids (list): A list of uids to compare.
         uid_to_score (dict): A dictionary of scores for each uid.
-        uid_to_block (dict): A dictionary of blocks for each uid.
-        epsilon_func (EpsilonFunc): Function that determines how much advantage to give to the earlier block.
-        current_block: The current block.
 
     Returns:
         tuple: A tuple containing two dictionaries, one for wins and one for win rates.
     """
 
-    mat = np.stack( uid_to_score , axis=0)
-  #  block_vec = np.stack(uid_to_block,axis=0 )
-  #  diffs = current_block - block_vec    # shape: (N,)
+    mat = np.stack(list(uid_to_score.values()), axis=0)
 
     # Compute components
     try:
@@ -79,13 +73,9 @@ def compute_scores(
         ci_lo, ci_hi = compute_ci_bounds(
             mat, B=EPOCHOR_CONFIG.bootstrap_samples, alpha=EPOCHOR_CONFIG.ci_alpha
         )
-        # Assuming compute_aggregate_gap can handle NaNs from ci_bounds if mat had NaNs
         agg_gap_arr = compute_aggregate_gap(ci_lo, ci_hi) 
         sep_score_arr = normalize_gap_scores(agg_gap_arr)
     except Exception as e:
-        # If score component computation fails
-        # error_message = f"Score components failed: {e}. UIDs: {uids}"
-        # Consider logging this error_message
         empty_scores = {uid: 0.0 for uid in uids}
         empty_details = {uid: np.nan for uid in uids}
         return empty_scores, empty_details, empty_details, empty_details, empty_details
@@ -99,8 +89,6 @@ def compute_scores(
     # Prepare dictionaries for return
     final_scores_dict = {uid: float(final_cleaned_score_arr[i]) for i, uid in enumerate(uids)}
     win_rate_dict = {uid: float(win_rate_arr[i]) if np.isfinite(win_rate_arr[i]) else np.nan for i, uid in enumerate(uids)}
-    # Ensure agg_gap_arr is an array before indexing, it might be a tuple if return_raw_matrix was True
-    # However, in this context, compute_aggregate_gap is called without return_raw_matrix=True
     agg_gap_dict = {uid: float(agg_gap_arr[i]) if np.isfinite(agg_gap_arr[i]) else np.nan for i, uid in enumerate(uids)}
     sep_score_dict = {uid: float(sep_score_arr[i]) if np.isfinite(sep_score_arr[i]) else np.nan for i, uid in enumerate(uids)}
     raw_composite_score_dict = {uid: float(raw_composite_score_arr[i]) if np.isfinite(raw_composite_score_arr[i]) else np.nan for i, uid in enumerate(uids)}
@@ -120,46 +108,43 @@ def score_time_series_model(
     series: typing.Union[np.ndarray, torch.Tensor],
     evaluator: CRPSEvaluator,
     device: str,
+    task: EvalTask,
+    score_details: typing.Dict[str, ScoreDetails],
 ) -> float:
     """
     Runs a time-series model on the given input and returns its loss.
 
     Args:
-        model (torch.nn.Module): The time-series model (e.g., a PyTorch nn.Module) 
-            that takes `series` as input and returns predictions of the same shape.
-        series (np.ndarray or torch.Tensor): The input time-series batch. 
-            Should already be in the format the model expects (e.g., shape [batch, features, ...]).
-        evaluator (CRPSEvaluator): An instance that knows how to compute loss between
-            the true series and the model’s predictions.
-        device (str): Device identifier, e.g. "cpu" or "cuda:0".
+        model (torch.nn.Module): The time-series model.
+        series (np.ndarray or torch.Tensor): The input time-series batch.
+        evaluator (CRPSEvaluator): An instance that knows how to compute loss.
+        device (str): Device identifier.
+        task (EvalTask): The evaluation task.
+        score_details (typing.Dict[str, ScoreDetails]): A dictionary to store the score details.
+
 
     Returns:
-        float: The computed loss (e.g., CRPS) for this forward pass.
+        float: The computed loss.
     """
-    # Move model to the correct device and set eval mode
     model.to(device)
     model.eval()
 
-    # Convert series to a torch.Tensor on `device` if not already
     if not isinstance(series, torch.Tensor):
         series_tensor = torch.tensor(series, dtype=torch.float32, device=device)
     else:
         series_tensor = series.to(device)
 
     with torch.inference_mode():
-        # Forward pass
         preds = model(series_tensor)
-        # Compute loss via the evaluator
-        loss = evaluator[task.name](series_tensor, preds) 
-        # replace
+        loss = evaluator.evaluate(series_tensor.cpu().numpy(), preds.cpu().numpy())
         score_details[task.name] = ScoreDetails(
-                raw_score= loss ,
+                raw_score= loss,
                 norm_score=None,
                 weighted_norm_score=None,
                 num_samples=len(series),
             )
 
-    return loss.mean(),score_details 
+    return loss.mean(), score_details 
 
 def compute_competitive_uids(
     uid_to_score: typing.Dict[int, float],
@@ -185,14 +170,8 @@ def compute_competitive_uids(
         uid: uid_to_score[uid] * fully_decayed_epsilon for uid in uid_to_block
     }
 
-    # Iterate through the models and only keep models who's loss is better than
-    # all models uploaded at an earlier block, after they've fully decayed.
-    # If the model cannot, then there exists at least one model at an earlier block which
-    # will always have a better epislon adjusted loss, thus it will never be the top model.
     competitive_uids = []
     for uid, loss in uid_to_score.items():
-        # Check if the current UID beats all earlier (or same block) models at full decay.
-        # all([]) is true so we always keep the earliest model.
         earlier_uids = [
             i
             for i, block in uid_to_block.items()

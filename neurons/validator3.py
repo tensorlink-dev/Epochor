@@ -225,7 +225,7 @@ class Validator(BaseValidatorNeuron):
                     uid_to_state[uid_i].repo_name = model_utils.get_hf_repo_name(model_i_metadata)
                     
                     with load_model_perf.sample():
-                        model_i = self.local_store.retrieve_model(hotkey, model_i_metadata.id, kwargs)
+                        model_i = self.local_store.retrieve_model(hotkey, model_i_metadata.id)
                     
                     with compute_loss_perf.sample():
                         score, score_details = utils.run_in_subprocess(
@@ -346,7 +346,7 @@ class Validator(BaseValidatorNeuron):
     def log_step(self, competition_id, epsilon_func, eval_tasks, current_block, uids, uid_to_state, uid_to_comp, seed, data_loaders, wins, win_rate, logging_metrics, load_model_perf, compute_loss_perf, load_data_perf):
         step_log = {"timestamp": time.time(), "competition_id": competition_id, "uids": uids, "uid_data": {}}
         
-        sub_comp_weights = self.state.ema_tracker.get_competition_weights(competition_id)
+        sub_comp_weights = self.state.ema_tracker.get_competition_weights(competition.id)
         
         for uid in uids:
             metrics = logging_metrics.get(uid, {})

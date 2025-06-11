@@ -25,7 +25,7 @@ import bittensor as bt
 from dotenv import load_dotenv
 
 from epochor.utils import logging
-from epochor.utils import misc as epochor_utils
+from epochor.utils import metagraph_utils as epochor_utils
 from epochor.competitions import competitions
 
 load_dotenv()  # take environment variables from .env.

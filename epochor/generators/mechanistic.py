@@ -6,8 +6,7 @@ pendulums, Lotka-Volterra predator-prey models, SIR epidemic models,
 the heat equation, local linear trends, and Holt-Winters smoothing.
 """
 import numpy as np
-import random # Added for seed usage
-from typing import Optional, List # Added for type hints
+from typing import Optional # Added for type hints
 
 def generate_pendulum(
     length: int, 

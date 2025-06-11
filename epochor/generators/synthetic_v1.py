@@ -15,10 +15,10 @@ import torch # Added torch for tensor operations
 
 # Local application/library specific imports
 from .base import Benchmarker
-from .metrics import mse
 try:
     from epochor.generators.base import Benchmarker
     from epochor.generators.sampler import random_blended_config
+    from epochor.generators.v1 import BlendedSeriesGeneratorV1
 except ImportError as e:
     import logging
     logging.error(

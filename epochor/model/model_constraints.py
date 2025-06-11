@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Type, Dict
 from epochor.constants import CompetitionId
+from competition.competitions import ModelConstraints
 from temporal import TransformerTemporalModel as model_cls 
 from temporal.configs import  TransformerTimeSeriesConfig as config_cls
 

@@ -1,5 +1,5 @@
 import dataclasses
-from typing import ClassVar, Optional, Type, Any
+from typing import ClassVar, Optional, Any
 
 # The maximum bytes for metadata on the chain.
 MAX_METADATA_BYTES = 128

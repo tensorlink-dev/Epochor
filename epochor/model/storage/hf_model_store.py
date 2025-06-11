@@ -60,8 +60,8 @@ class HuggingFaceModelStore(RemoteModelStore):
             # Save the model and config to a temporary directory.
             # This prepares the content for both hashing and uploading.
             save_hf(
-                model=model.pt_model,
-                config=model.config,
+                model=model.model,
+                config=model.model.config,
                 save_directory=tmpdir,
                 safe=True,  # Always use safetensors for safety and consistency.
             )
@@ -133,12 +133,12 @@ class HuggingFaceModelStore(RemoteModelStore):
                 f.size for f in model_info.siblings if f.size is not None
             )
             if (
-                model_constraints.max_bytes is not None
-                and total_size > model_constraints.max_bytes
+                model_constraints.max_model_size_bytes is not None
+                and total_size > model_constraints.max_model_size_bytes
             ):
                 raise MinerMisconfiguredError(
                     hotkey=model_id.name,
-                    message=f"Repository size {total_size} bytes exceeds max allowed {model_constraints.max_bytes} bytes.",
+                    message=f"Repository size {total_size} bytes exceeds max allowed {model_constraints.max_model_size_bytes} bytes.",
                 )
         except RepositoryNotFoundError:
             raise MinerMisconfiguredError(
@@ -176,7 +176,6 @@ class HuggingFaceModelStore(RemoteModelStore):
                     config_cls=model_constraints.config_cls,
                     safe=True,
                     map_location="cpu",
-                    **model_constraints.load_kwargs,
                 )
             except Exception as e:
                 raise MinerMisconfiguredError(
@@ -185,4 +184,4 @@ class HuggingFaceModelStore(RemoteModelStore):
                 ) from e
 
         # 5. Return the loaded model with its original, verified ModelId.
-        return Model(id=model_id, pt_model=pt_model, config=pt_model.config)
+        return Model(id=model_id, model=pt_model)

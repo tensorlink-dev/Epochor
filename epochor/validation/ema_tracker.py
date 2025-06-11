@@ -2,8 +2,10 @@ import collections
 import pickle
 import typing
 from typing import Dict, Any, Optional
+import torch
+from epochor.competition.data import Competition
 
-from epochor.competition import get_current_competition
+from competitions.competitions import get_current_competition
 
 
 class EMATracker:
@@ -48,7 +50,8 @@ class CompetitionEMATracker:
     Manages one EMATracker per competition, plus raw-score history and hotkey mappings.
     """
 
-    def __init__(self, default_alpha: float = 0.2):
+    def __init__(self, num_neurons: int, default_alpha: float = 0.2):
+        self.num_neurons = num_neurons
         self.default_alpha = default_alpha
         # comp_id -> EMATracker
         self.trackers: Dict[Any, EMATracker] = {}
@@ -57,6 +60,7 @@ class CompetitionEMATracker:
         # UID <-> hotkey
         self.uid_to_hotkey: Dict[int, str] = {}
         self.hotkey_to_uid: Dict[str, int] = {}
+        self.competition_weights: Dict[int, torch.Tensor] = {}
 
     def _get_or_create_tracker(self, competition_id: Any) -> EMATracker:
         if competition_id not in self.trackers:
@@ -127,6 +131,7 @@ class CompetitionEMATracker:
         self.raw_scores.clear()
         self.uid_to_hotkey.clear()
         self.hotkey_to_uid.clear()
+        self.competition_weights.clear()
 
     def reset_competitions(self, competition_ids: typing.Set[Any]):
         """Resets tracked competitions to only those identified.
@@ -142,6 +147,11 @@ class CompetitionEMATracker:
         for key in list(self.raw_scores.keys()):
             if key not in competition_ids:
                 del self.raw_scores[key]
+        
+        for key in list(self.competition_weights.keys()):
+            if key not in competition_ids:
+                del self.competition_weights[key]
+
 
     def reset_score_for_hotkey(self, hotkey: str):
         """
@@ -181,48 +191,40 @@ class CompetitionEMATracker:
 
     def get_hotkey(self, uid: int) -> Optional[str]:
         return self.uid_to_hotkey.get(uid)
-        
+
     def get_subnet_weights(
-            self,
-            competitions: List[Competition],
-            min_comp_weight_threshold: float = 0.0,
-        ) -> torch.Tensor:
-            """Aggregate tensor‐based weights across competitions (with optional thresholding)."""
-            subnet_weights = torch.zeros(self.num_neurons, dtype=torch.float32)
+        self,
+        competitions: typing.List[Competition],
+        min_comp_weight_threshold: float = 0.0,
+    ) -> torch.Tensor:
+        """Aggregate tensor‐based weights across competitions (with optional thresholding)."""
+        subnet_weights = torch.zeros(self.num_neurons, dtype=torch.float32)
 
-            for comp in competitions:
-                comp_id = comp.id
-                if comp_id not in self.trackers:
-                    continue
+        for comp in competitions:
+            comp_id = comp.id
+            if comp_id not in self.competition_weights:
+                continue
+            
+            tensor = self.competition_weights[comp_id]
 
-                # fetch the EMA‐derived tensor and normalize
-                comp_weights = self.trackers[comp_id].get_all_scores()
-                tensor = torch.tensor(
-                    [comp_weights.get(uid, 0.0) for uid in range(self.num_neurons)],
-                    dtype=torch.float32
-                )
+            if min_comp_weight_threshold > 0:
+                mask = tensor < min_comp_weight_threshold
+                tensor[mask] = 0.0
                 tensor /= tensor.sum() if tensor.sum() > 0 else 1.0
                 tensor = tensor.nan_to_num(0.0)
 
-                if min_comp_weight_threshold > 0:
-                    mask = tensor < min_comp_weight_threshold
-                    tensor[mask] = 0.0
-                    tensor /= tensor.sum() if tensor.sum() > 0 else 1.0
-                    tensor = tensor.nan_to_num(0.0)
+            subnet_weights += tensor * comp.reward_percentage
 
-                subnet_weights += tensor * comp.reward_percentage
-
-            subnet_weights /= subnet_weights.sum() if subnet_weights.sum() > 0 else 1.0
-            return subnet_weights.nan_to_num(0.0)
+        subnet_weights /= subnet_weights.sum() if subnet_weights.sum() > 0 else 1.0
+        return subnet_weights.nan_to_num(0.0)
+    
+    def record_competition_weights(self, competition_id: int, weights: torch.Tensor):
+        """Records the weights for a given competition."""
+        self.competition_weights[competition_id] = weights
 
     def get_competition_weights(self, competition_id: int) -> torch.Tensor:
         """Return the EMA‐derived weight tensor for one competition."""
-        tracker = self._get_or_create_tracker(competition_id)
-        raw = tracker.get_all_scores()
-        return torch.tensor(
-            [raw.get(uid, 0.0) for uid in range(self.num_neurons)],
-            dtype=torch.float32
-        )
+        return self.competition_weights.get(competition_id, torch.zeros(self.num_neurons, dtype=torch.float32))
 
     def save_state(self, filepath: str):
         """
@@ -234,6 +236,8 @@ class CompetitionEMATracker:
             "raw_scores":         dict(self.raw_scores),
             "uid_to_hotkey":      self.uid_to_hotkey,
             "hotkey_to_uid":      self.hotkey_to_uid,
+            "num_neurons":        self.num_neurons,
+            "competition_weights": self.competition_weights,
         }
         with open(filepath, "wb") as f:
             pickle.dump(state, f)
@@ -250,3 +254,5 @@ class CompetitionEMATracker:
         self.raw_scores        = collections.defaultdict(dict, state["raw_scores"])
         self.uid_to_hotkey     = state["uid_to_hotkey"]
         self.hotkey_to_uid     = state["hotkey_to_uid"]
+        self.num_neurons       = state["num_neurons"]
+        self.competition_weights = state["competition_weights"]

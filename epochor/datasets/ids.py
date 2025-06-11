@@ -1,10 +1,6 @@
 
-from enum import Enum, auto
+from enum import Enum
 
-class EvalMethodId(Enum):
-    # existing entries…
-    SYNTHETIC_BENCHMARK = auto()
-    
 class DatasetId(Enum):
     """
     Enumeration of available dataset identifiers.

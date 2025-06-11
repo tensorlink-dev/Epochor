@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 from epochor.model.data import Model, ModelId
 from epochor.model.competition.data import ModelConstraints

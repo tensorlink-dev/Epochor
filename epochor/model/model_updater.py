@@ -7,10 +7,10 @@ import logging
 from epochor.model.competition import utils as competition_utils
 from epochor.model.competition.data import Competition, ModelConstraints
 from epochor.model.data import Model, ModelId, ModelMetadata
-from epochor.validator.model_tracker import ModelTracker
-from epochor.storage.local_model_store import LocalModelStore
-from epochor.storage.remote_model_store import RemoteModelStore
-from epochor.storage.model_metadata_store import ModelMetadataStore
+from epochor.model.model_tracker import ModelTracker
+from epochor.model.base_disk_model_store import LocalModelStore
+from epochor.model.base_hf_model_store import RemoteModelStore
+from epochor.model.base_metadata_model_store import ModelMetadataStore
 from epochor.utils.hashing import get_hash_of_two_strings
 
 
@@ -70,7 +70,7 @@ class ModelUpdater:
 
     async def _get_metadata(self, uid: int, hotkey: str) -> Optional[ModelMetadata]:
         # Tries to get the metadata from the tracker first, then from the store.
-        tracked_metadata = self.model_tracker.get_metadata(hotkey)
+        tracked_metadata = self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
         if tracked_metadata:
             return tracked_metadata
         return await self.metadata_store.retrieve_model_metadata(uid, hotkey)
@@ -116,7 +116,7 @@ class ModelUpdater:
             return False
 
         # 4) Skip if metadata unchanged and not forced
-        tracked = self.model_tracker.get_metadata(hotkey)
+        tracked = self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
         if not force and tracked == metadata:
             return False
 
@@ -128,7 +128,7 @@ class ModelUpdater:
             raise MinerMisconfiguredError(hotkey, f"Failed to download model: {e}") from e
 
         # 6) Record in tracker (even if validation fails)
-        self.model_tracker.on_model_update(hotkey, metadata, model.id)
+        self.model_tracker.on_model_updated(hotkey, metadata)
 
         # 7) Optional hash check
         if metadata.id.hash:

@@ -1,7 +1,7 @@
 """
 Defines unique identifiers for different evaluation methodologies or benchmarks.
 """
-from enum import Enum, auto # Standard library imports
+from enum import Enum # Standard library imports
 
 class EvalMethodId(Enum):
     """
