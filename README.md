@@ -1,4 +1,7 @@
-![epochor logo](docs/assets/epochor_logo.png)
+<div align="center">
+    <img src="docs/assets/epochor_logo.png#gh-dark-mode-only" width="300px">
+    <img src="docs/assets/epochor_logo.png#gh-light-mode-only" width="300px">
+</div>
 
 # Epochor Subnet
 
