@@ -1,3 +1,5 @@
+![epochor logo](docs/assets/epochor_logo.png)
+
 # Epochor Subnet
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
