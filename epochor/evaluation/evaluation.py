@@ -1,25 +1,14 @@
-# epochor/evaluation.py
-
 """
-Evaluator base and CRPS-like evaluator for Epochor subnet.
+Evaluator for the Epochor subnet, using the Continuous Ranked Probability Score.
+
+This module provides the CRPSEvaluator, which uses the properscoring library
+to compute the CRPS for ensemble forecasts.
 """
 
 import numpy as np
+from properscoring import crps_ensemble
+
 from epochor.config import EPOCHOR_CONFIG
-
-
-def crps(target: np.ndarray, prediction: np.ndarray) -> np.ndarray:
-    """
-    Computes the Continuous Ranked Probability Score (CRPS).
-
-    Args:
-        target (np.ndarray): The ground truth values.
-        prediction (np.ndarray): The predicted values.
-
-    Returns:
-        np.ndarray: The CRPS score for each prediction.
-    """
-    return np.mean((prediction - target) ** 2, axis=-1)
 
 
 class BaseEvaluator:
@@ -32,64 +21,95 @@ class BaseEvaluator:
         Compute score (e.g., loss, CRPS, accuracy) between prediction and ground truth.
 
         Args:
-            target: array of shape [T]
-            prediction: array of shape [T]
+            target: array of ground truth values.
+            prediction: array of predicted values or ensembles.
 
         Returns:
-            scalar float score
+            A scalar float score for the prediction.
         """
         raise NotImplementedError
 
     def score_to_weight(self, scores: np.ndarray) -> np.ndarray:
         """
-        Convert raw scores into normalized weights using power law + optional boost.
+        Convert raw scores into normalized weights. Lower scores are considered better.
+
+        The conversion uses a power law and optional boosting based on configuration.
+        A lower score results in a higher weight.
 
         Args:
-            scores: array of raw performance scores
+            scores: array of raw performance scores (lower is better).
 
         Returns:
-            array of normalized weights summing to 1
+            array of normalized weights summing to 1.
         """
-        scores = np.nan_to_num(scores, nan=0.0)
-        scores = np.clip(scores, 0.0, None)
+        # Invert scores so that lower scores get higher values.
+        # Add a small epsilon to avoid division by zero.
+        inverted_scores = 1 / (scores + 1e-9)
+        
+        # Replace any NaNs or infinities that may have occurred
+        inverted_scores = np.nan_to_num(inverted_scores, nan=0.0, posinf=np.nanmax(inverted_scores[np.isfinite(inverted_scores)]))
+        
+        # Clip scores to be non-negative
+        processed_scores = np.clip(inverted_scores, 0.0, None)
 
         if EPOCHOR_CONFIG.reward_exponent != 1.0:
-            scores = np.power(scores, EPOCHOR_CONFIG.reward_exponent)
+            processed_scores = np.power(processed_scores, EPOCHOR_CONFIG.reward_exponent)
 
-        total = scores.sum()
+        total = processed_scores.sum()
         if total <= 0:
-            return np.ones_like(scores) / len(scores)
+            # If all scores are zero, return uniform weights
+            return np.ones_like(processed_scores) / len(processed_scores) if len(processed_scores) > 0 else np.array([])
 
-        return scores / total
+        return processed_scores / total
 
 
 class CRPSEvaluator(BaseEvaluator):
     """
-    Default evaluator using squared error (placeholder for CRPS).
+    Evaluator using the ensemble Continuous Ranked Probability Score (CRPS).
+
+    This evaluator is designed for probabilistic forecasting, where the prediction
+    is an ensemble of possible future outcomes.
     """
-    def eval_task(self): 
+    def eval_task(self) -> str:
+        """Returns the name of the evaluation task."""
         return 'CRPS'
 
     def evaluate(self, target: np.ndarray, prediction: np.ndarray) -> float:
         """
-        Compute squared error (mean over time steps).
-        Replace this with actual CRPS if using distributions.
+        Computes the mean ensemble CRPS.
 
         Args:
-            target: [T]
-            prediction: [T]
+            target (np.ndarray): Ground truth values, expected shape [T].
+            prediction (np.ndarray): Ensemble predictions, expected shape [T, N_ensemble_members].
+                                     If a 1D array is passed, it will be treated as an
+                                     ensemble with a single member.
 
         Returns:
-            Mean squared error
+            float: The mean CRPS score over the time series. A lower score is better.
         """
         target = np.asarray(target)
         prediction = np.asarray(prediction)
 
-        if target.shape != prediction.shape:
-            raise ValueError("Prediction and target shapes must match.")
+        # --- Shape Validation ---
+        if target.ndim != 1:
+            raise ValueError(f"Target must be a 1D array, but got shape {target.shape}")
         
-        losses = crps(target,prediction)
-        return  losses
+        if prediction.ndim != 2:
+            # Handle the case of a deterministic forecast by creating a dummy ensemble dimension
+            if prediction.ndim == 1:
+                prediction = prediction[:, np.newaxis]
+            else:
+                raise ValueError(f"Prediction must be a 2D ensemble array, but got shape {prediction.shape}")
+        
+        if target.shape[0] != prediction.shape[0]:
+            raise ValueError(f"Time dimension mismatch: target shape {target.shape[0]} vs prediction shape {prediction.shape[0]}")
+
+        # --- CRPS Calculation ---
+        # crps_ensemble returns a score for each of the T observations.
+        # We take the mean to get a single scalar score for the entire series.
+        crps_scores = crps_ensemble(observations=target, forecasts=prediction)
+        
+        return float(np.mean(crps_scores))
 
 
 __all__ = ["BaseEvaluator", "CRPSEvaluator"]

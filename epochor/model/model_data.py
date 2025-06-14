@@ -1,5 +1,6 @@
 import dataclasses
 from typing import ClassVar, Optional, Any
+from temporal.models.base-model import  BaseTemporalModel
 
 # The maximum bytes for metadata on the chain.
 MAX_METADATA_BYTES = 128
@@ -78,7 +79,7 @@ class Model:
     id: ModelId
 
     # The raw model object (e.g. a torch.nn.Module or any other class).
-    model: Any
+    model: BaseTemporalModel
 
     # Tokenizer is no longer managed by stores; always None.
 

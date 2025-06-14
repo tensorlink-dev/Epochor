@@ -4,7 +4,11 @@ Central registry for time series generator functions.
 This module defines dictionaries that map generator names to their
 respective function implementations, categorized by the type of time
 series they generate (e.g., blended, statistical, chaotic).
+
+It uses Enum classes to avoid "magic strings" for generator names,
+providing better type safety and code completion support.
 """
+from enum import Enum
 
 # Import generator functions from their respective modules
 from .v1.synthetic import (
@@ -64,66 +68,125 @@ from .gp import (
     generate_gaussian_process,
 )
 
-# Registries mapping generator names to function references
+# --- Enum Definitions for Generator Names ---
+
+class BlendedGeneratorName(str, Enum):
+    TREND = "trend"
+    SEASONALITY = "seasonality"
+    NOISE = "noise"
+    CHANGEPOINT = "changepoint"
+    FGN = "fgn"
+    EVENT_DECAY = "event_decay"
+    TIME_VARYING_FREQ = "time_varying_freq"
+    HETEROSKEDASTIC_NOISE = "heteroskedastic_noise"
+    AUTOREGRESSIVE = "autoregressive"
+    SINUSOID = "sinusoid"
+    SUM_OF_SINES = "sum_of_sines"
+    SAWTOOTH = "sawtooth"
+    TRIANGLE = "triangle"
+    SQUARE = "square"
+    POLYNOMIAL_TREND = "polynomial_trend"
+    EXPONENTIAL_TREND = "exponential_trend"
+    LOGISTIC_GROWTH = "logistic_growth"
+    DAMPED_HARMONIC = "damped_harmonic"
+    AMPLITUDE_MODULATED_SINUSOID = "amplitude_modulated_sinusoid"
+
+class StatisticalGeneratorName(str, Enum):
+    AR = "ar"
+    MA = "ma"
+    ARMA = "arma"
+    ARIMA = "arima"
+    GARCH = "garch"
+    OU = "ou"
+    JUMP_DIFFUSION = "jump_diff"
+    HAWKES = "hawkes"
+    HMM = "hmm"
+    MSAR = "msar"
+    TAR = "tar"
+    RANDOM_WALK = "random_walk"
+    SEASONAL_RANDOM_WALK = "seasonal_random_walk"
+    EGARCH = "egarch"
+    TGARCH = "tgarch"
+    LEVY_FLIGHT = "levy_flight"
+
+class ChaoticGeneratorName(str, Enum):
+    LORENZ = "lorenz"
+    ROSSLER = "rossler"
+    DUFFING = "duffing"
+    LOGISTIC_MAP = "logistic_map"
+
+class MechanisticGeneratorName(str, Enum):
+    PENDULUM = "pendulum"
+    LOTKA_VOLTERRA = "lotka_volterra"
+    SIR = "sir"
+    HEAT_EQUATION = "heat_equation"
+    LOCAL_LINEAR_TREND = "local_linear_trend"
+    HOLT_WINTERS = "holt_winters"
+
+class GaussianGeneratorName(str, Enum):
+    GAUSSIAN_PROCESS = "gaussian_process"
+
+# --- Registries mapping Enum members to function references ---
+
 blended_registry = {
-    "trend": generate_trend,
-    "seasonality": generate_seasonality,
-    "noise": generate_noise,
-    "changepoint": generate_changepoint_series,
-    "fgn": generate_fractional_gaussian_noise,
-    "event_decay": generate_event_driven_decay,
-    "time_varying_freq": generate_time_varying_freq,
-    "heteroskedastic_noise": generate_heteroskedastic_noise,
-    "autoregressive": generate_autoregressive_series,
-    "sinusoid": generate_sinusoid,
-    "sum_of_sines": generate_sum_of_sines,
-    "sawtooth": generate_sawtooth,
-    "triangle": generate_triangle,
-    "square": generate_square,
-    "polynomial_trend": generate_polynomial_trend,
-    "exponential_trend": generate_exponential_trend,
-    "logistic_growth": generate_logistic_growth,
-    "damped_harmonic": generate_damped_harmonic,
-    "amplitude_modulated_sinusoid": generate_amplitude_modulated_sinusoid, # New
+    BlendedGeneratorName.TREND: generate_trend,
+    BlendedGeneratorName.SEASONALITY: generate_seasonality,
+    BlendedGeneratorName.NOISE: generate_noise,
+    BlendedGeneratorName.CHANGEPOINT: generate_changepoint_series,
+    BlendedGeneratorName.FGN: generate_fractional_gaussian_noise,
+    BlendedGeneratorName.EVENT_DECAY: generate_event_driven_decay,
+    BlendedGeneratorName.TIME_VARYING_FREQ: generate_time_varying_freq,
+    BlendedGeneratorName.HETEROSKEDASTIC_NOISE: generate_heteroskedastic_noise,
+    BlendedGeneratorName.AUTOREGRESSIVE: generate_autoregressive_series,
+    BlendedGeneratorName.SINUSOID: generate_sinusoid,
+    BlendedGeneratorName.SUM_OF_SINES: generate_sum_of_sines,
+    BlendedGeneratorName.SAWTOOTH: generate_sawtooth,
+    BlendedGeneratorName.TRIANGLE: generate_triangle,
+    BlendedGeneratorName.SQUARE: generate_square,
+    BlendedGeneratorName.POLYNOMIAL_TREND: generate_polynomial_trend,
+    BlendedGeneratorName.EXPONENTIAL_TREND: generate_exponential_trend,
+    BlendedGeneratorName.LOGISTIC_GROWTH: generate_logistic_growth,
+    BlendedGeneratorName.DAMPED_HARMONIC: generate_damped_harmonic,
+    BlendedGeneratorName.AMPLITUDE_MODULATED_SINUSOID: generate_amplitude_modulated_sinusoid,
 }
 
 statistical_registry = {
-    "ar": generate_ar, # Added existing function ref
-    "ma": generate_ma, # Added existing function ref
-    "arma": generate_arma,
-    "garch": generate_garch,
-    "ou": generate_ou,
-    "jump_diff": generate_jump_diffusion,
-    "hawkes": generate_hawkes, # Was commented, now assuming it's an actual function
-    "hmm": generate_hmm,
-    "msar": generate_msar,
-    "tar": generate_tar,
-    "arima": generate_arima, # Added existing function ref
-    "random_walk": generate_random_walk, # New
-    "seasonal_random_walk": generate_seasonal_random_walk, # New
-    "egarch": generate_egarch, # New
-    "tgarch": generate_tgarch, # New
-    "levy_flight": generate_levy_flight, # New
+    StatisticalGeneratorName.AR: generate_ar,
+    StatisticalGeneratorName.MA: generate_ma,
+    StatisticalGeneratorName.ARMA: generate_arma,
+    StatisticalGeneratorName.ARIMA: generate_arima,
+    StatisticalGeneratorName.GARCH: generate_garch,
+    StatisticalGeneratorName.OU: generate_ou,
+    StatisticalGeneratorName.JUMP_DIFFUSION: generate_jump_diffusion,
+    StatisticalGeneratorName.HAWKES: generate_hawkes,
+    StatisticalGeneratorName.HMM: generate_hmm,
+    StatisticalGeneratorName.MSAR: generate_msar,
+    StatisticalGeneratorName.TAR: generate_tar,
+    StatisticalGeneratorName.RANDOM_WALK: generate_random_walk,
+    StatisticalGeneratorName.SEASONAL_RANDOM_WALK: generate_seasonal_random_walk,
+    StatisticalGeneratorName.EGARCH: generate_egarch,
+    StatisticalGeneratorName.TGARCH: generate_tgarch,
+    StatisticalGeneratorName.LEVY_FLIGHT: generate_levy_flight,
 }
 
 chaotic_registry = {
-    "lorenz": generate_lorenz,
-    "rossler": generate_rossler,
-    "duffing": generate_duffing,
-    "logistic_map": generate_logistic_map,
+    ChaoticGeneratorName.LORENZ: generate_lorenz,
+    ChaoticGeneratorName.ROSSLER: generate_rossler,
+    ChaoticGeneratorName.DUFFING: generate_duffing,
+    ChaoticGeneratorName.LOGISTIC_MAP: generate_logistic_map,
 }
 
 mechanistic_registry = {
-    "pendulum": generate_pendulum,
-    "lotka_volterra": generate_lotka_volterra,
-    "sir": generate_sir,
-    "heat_equation": generate_heat_equation,
-    "local_linear_trend": generate_local_linear_trend, # New
-    "holt_winters": generate_holt_winters, # New
+    MechanisticGeneratorName.PENDULUM: generate_pendulum,
+    MechanisticGeneratorName.LOTKA_VOLTERRA: generate_lotka_volterra,
+    MechanisticGeneratorName.SIR: generate_sir,
+    MechanisticGeneratorName.HEAT_EQUATION: generate_heat_equation,
+    MechanisticGeneratorName.LOCAL_LINEAR_TREND: generate_local_linear_trend,
+    MechanisticGeneratorName.HOLT_WINTERS: generate_holt_winters,
 }
 
 gaussian_registry = {
-    "gaussian_process": generate_gaussian_process
+    GaussianGeneratorName.GAUSSIAN_PROCESS: generate_gaussian_process
 }
 
 __all__ = [
@@ -132,4 +195,9 @@ __all__ = [
     "chaotic_registry",
     "mechanistic_registry",
     "gaussian_registry",
+    "BlendedGeneratorName",
+    "StatisticalGeneratorName",
+    "ChaoticGeneratorName",
+    "MechanisticGeneratorName",
+    "GaussianGeneratorName",
 ]

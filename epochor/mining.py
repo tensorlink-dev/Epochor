@@ -13,7 +13,7 @@
 # THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
 # THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
 # THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, out of OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
 import os
@@ -24,7 +24,6 @@ from typing import Optional, Union
 import bittensor as bt
 import huggingface_hub
 import torch
-from transformers import PreTrainedModel
 
 from epochor import constants, logging
 from epochor.competition import CompetitionId
@@ -35,7 +34,8 @@ from epochor.model.model_data import Model, ModelId
 from epochor.model.model_utils import get_hash_of_two_strings
 from epochor.model.storage.hf_model_store import HuggingFaceModelStore
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
-
+from temporal.utils.hf_accessors import save_hf, load_hf
+from temporal.models.base-model import  BaseTemporalModel
 
 def model_path(base_dir: str, run_id: str) -> str:
     """
@@ -45,7 +45,7 @@ def model_path(base_dir: str, run_id: str) -> str:
 
 
 async def push(
-    model: PreTrainedModel,
+    model: BaseTemporalModel,
     repo: str,
     wallet: bt.wallet,
     competition_id: CompetitionId,
@@ -57,7 +57,7 @@ async def push(
     """Pushes the model to Hugging Face and publishes it on the chain for evaluation by validators.
 
     Args:
-        model (PreTrainedModel): The model to push.
+        model ("PreTrainedModel"): The model to push.
         repo (str): The repo to push to. Must be in format "namespace/name".
         competition_id (CompetitionId): The competition the miner is participating in.
         wallet (bt.wallet): The wallet of the Miner uploading the model.
@@ -92,7 +92,7 @@ async def push(
 
     logging.debug("Started uploading model to hugging face...")
     model_id = await remote_model_store.upload_model(
-        Model(id=model_id, pt_model=model), model_constraints
+        Model(id=model_id, model=model), model_constraints
     )
 
     logging.info("Uploaded model to hugging face.")
@@ -152,15 +152,16 @@ async def push(
         logging.info("Model set to public")
 
 
-def save(model: PreTrainedModel, model_dir: str):
+def save(model:  BaseTemporalModel, model_dir: str):
     """Saves a model to the provided directory"""
     if not os.path.exists(model_dir):
         os.makedirs(model_dir, exist_ok=True)
 
     # Save the model state to the specified path.
-    model.save_pretrained(
+    save_hf(
+        model=model,
         save_directory=model_dir,
-        safe_serialization=True,
+        safe=True,
     )
 
 
@@ -188,11 +189,20 @@ async def get_repo(
 
 def load_local_model(
     model_dir: str, competition_id: str
-) -> Union[PreTrainedModel, torch.nn.Module]:
+) -> Union[BaseTemporalModel, "torch.nn.Module"]:
     """Loads a model from a directory."""
+    model_constraints = constants.MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
+        competition_id, None
+    )
+    if not model_constraints:
+        raise ValueError("Invalid competition_id")
 
-    model = GeneratorFactory.get_model(
-        model_dir=model_dir, competition_id=competition_id
+    model = load_hf(
+        model_name_or_path=model_dir,
+        model_cls=model_constraints.model_cls,
+        config_cls=model_constraints.config_cls,
+        safe=True,
+        map_location="cpu",
     )
 
     return model
@@ -204,7 +214,7 @@ async def load_remote_model(
     metagraph: Optional[bt.metagraph] = None,
     metadata_store: Optional[ModelMetadataStore] = None,
     remote_model_store: Optional[RemoteModelStore] = None,
-) -> PreTrainedModel:
+) -> BaseTemporalModel:
     """Loads the model currently being advertised by the Miner with the given UID.
 
     Args:
@@ -251,7 +261,7 @@ async def load_best_model(
     metagraph: Optional[bt.metagraph] = None,
     metadata_store: Optional[ModelMetadataStore] = None,
     remote_model_store: Optional[RemoteModelStore] = None,
-) -> PreTrainedModel:
+) -> BaseTemporalModel:
     """Loads the model from the best performing miner to download_dir"""
     # TODO: This needs to be implemented.
     raise NotImplementedError("load_best_model is not yet implemented.")
