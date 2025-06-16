@@ -404,8 +404,7 @@ class Validator(BaseValidatorNeuron):
                     self.wandb_run.finish()
                 exit()
             except Exception as e:
-                logging.error(f"Error in validator loop: {e}
-{traceback.format_exc()}")
+                logging.error(f"Error in validator loop: {e}{traceback.format_exc()}")
 
 
 if __name__ == "__main__":
