@@ -135,7 +135,7 @@ def score_time_series_model(
         series_tensor = series.to(device)
 
     with torch.inference_mode():
-        preds = model(series_tensor)
+        preds = model(series_tensor) # TODO add generate_autoregressive()
         loss = evaluator.evaluate(series_tensor.cpu().numpy(), preds.cpu().numpy())
         score_details[task.name] = ScoreDetails(
                 raw_score= loss,

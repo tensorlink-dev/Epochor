@@ -1,12 +1,4 @@
-"""
-Benchmarker implementation for V1 synthetic time series data.
 
-This module defines a concrete Benchmarker that uses V1 synthetic data generators
-to create evaluation datasets. Each generated series is split into an input
-portion and a target portion. The benchmarker prepares batches of these
-input/target pairs with appropriate padding and attention masks for evaluation
-with transformer-style models. It primarily computes Mean Squared Error (MSE).
-"""
 import random
 from typing import Dict, Any, List
 
@@ -14,12 +6,12 @@ import numpy as np
 import torch
 
 from .base import Benchmarker
-from epochor.generators.sampler import random_blended_config, SyntheticGenerator
+from epochor.generators.kernel_synth import KernelSynth
 
 
 class SyntheticBenchmarkerV1(Benchmarker):
     """
-    Generates synthetic time series, splits them into input/target pairs,
+    Generates synthetic time series using KernelSynth, splits them into input/target pairs,
     prepares padded batches suitable for transformer models, and scores predictions
     using MSE.
     """
@@ -68,17 +60,20 @@ class SyntheticBenchmarkerV1(Benchmarker):
             - "attention_mask": torch.Tensor of shape (n_series, max_input_len).
             - "targets_padded": torch.Tensor of shape (n_series, max_target_len).
             - "actual_target_lengths": List[int] of actual lengths for each target series.
+            - "kernels": List[str] of kernel descriptions for each series.
         """
         raw_inputs: List[np.ndarray] = []
         raw_targets: List[np.ndarray] = []
+        kernels: List[str] = []
 
-        rng = random.Random(seed) # For reproducible split point selection
+        rng = random.Random(seed)
 
-        for i in range(self.n_series):
-            current_series_seed = seed + i
-            cfg = random_blended_config(length=self.length, seed=current_series_seed)
-            gen = SyntheticGenerator(config=cfg)
-            full_ts = gen.generate(seed=current_series_seed).flatten().astype(np.float32)
+        ks = KernelSynth(min_length=self.length, max_length=self.length, random_seed=seed)
+        synthetics = ks.generate_dataset(num_series=self.n_series, max_kernels=5, samples_per_kernel=50)
+        
+        for synthetic_series in synthetics:
+            full_ts = synthetic_series['target'].flatten().astype(np.float32)
+            kernel = synthetic_series['kernel']
 
             input_frac = rng.uniform(self.min_input_frac, self.max_input_frac)
             split_idx = int(self.length * input_frac)
@@ -91,6 +86,7 @@ class SyntheticBenchmarkerV1(Benchmarker):
 
             raw_inputs.append(ts_input)
             raw_targets.append(ts_target)
+            kernels.append(kernel)
 
         # Determine max lengths for padding
         max_input_len = max(len(s) for s in raw_inputs) if raw_inputs else 0
@@ -119,4 +115,5 @@ class SyntheticBenchmarkerV1(Benchmarker):
             "attention_mask": attention_mask,
             "targets_padded": targets_padded,
             "actual_target_lengths": actual_target_lengths,
+            "kernels": kernels
         }
