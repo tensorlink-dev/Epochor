@@ -5,7 +5,7 @@ import shutil
 import os
 import datetime
 from pathlib import Path
-from epochor.model.data import ModelId
+from epochor.model.model_data import ModelId
 from epochor.model.storage.disk import utils
 
 class TestDiskUtils(unittest.TestCase):

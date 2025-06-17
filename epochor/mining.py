@@ -245,7 +245,7 @@ async def load_remote_model(
         raise ValueError(f"No model metadata found for miner {uid}")
 
     model_constraints = constants.MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
-        model_metadata.id.competition_id, None
+        model_metadata.id._competition_id, None
     )
 
     if not model_constraints:
@@ -258,7 +258,7 @@ async def load_remote_model(
     return model.pt_model
 
 
-async def load_best_.model(
+async def load_best_model(
     download_dir: str,
     competition_id: CompetitionId,
     metagraph: Optional[bt.metagraph] = None,

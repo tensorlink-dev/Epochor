@@ -3,10 +3,11 @@ import unittest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from neurons.validator import Validator
-from epochor.model.data import ModelId, ModelMetadata, EvalResult, ScoreDetails
+from epochor.model.model_data import ModelId, ModelMetadata, EvalResult, ScoreDetails
 from epochor.competition import Competition, CompetitionId
 from tests.test_disk_model_store import DummyModel, DummyConfig
 import torch
+from template.base.validator import BaseValidatorNeuron
 
 class TestValidator(unittest.TestCase):
 

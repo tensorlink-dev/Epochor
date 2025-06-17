@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Type, Dict, List
-from epochor.constants import CompetitionId
+from constants import CompetitionId
 from dataclasses import dataclass
 from temporal.models.base_model import  BaseTemporalModel as model_cls 
 from temporal.configs import  TransformerTimeSeriesConfig as config_cls

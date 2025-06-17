@@ -4,7 +4,7 @@ import tempfile
 import os
 import shutil
 from epochor.model.model_tracker import ModelTracker
-from epochor.model.data import ModelId, ModelMetadata, EvalResult
+from epochor.model.model_data import ModelId, ModelMetadata, EvalResult
 
 class TestModelTracker(unittest.TestCase):
 
