@@ -22,12 +22,12 @@ class TestDiskUtils(unittest.TestCase):
         self.assertEqual(utils.get_local_miner_dir("base", "hotkey1"), "base/models/hotkey1")
 
     def test_get_local_model_dir(self):
-        model_id = ModelId(namespace="ns", name="name", commit="commit", hash="hash")
+        model_id = ModelId(namespace="ns", name="name", commit="commit", hash="hash", competition_id=1)
         expected_path = os.path.join("base", "models", "hotkey1", "models--ns--name")
         self.assertEqual(utils.get_local_model_dir("base", "hotkey1", model_id), expected_path)
 
     def test_get_local_model_snapshot_dir(self):
-        model_id = ModelId(namespace="ns", name="name", commit="commit", hash="hash")
+        model_id = ModelId(namespace="ns", name="name", commit="commit", hash="hash", competition_id=1)
         expected_path = os.path.join("base", "models", "hotkey1", "models--ns--name", "snapshots", "commit")
         self.assertEqual(utils.get_local_model_snapshot_dir("base", "hotkey1", model_id), expected_path)
 
@@ -40,7 +40,7 @@ class TestDiskUtils(unittest.TestCase):
         path1.touch()
         
         # Make sure the timestamps are different
-        os.utime(path1, (datetime.datetime.now() - datetime.timedelta(seconds=10)).timestamp())
+        os.utime(path1, (int((datetime.datetime.now() - datetime.timedelta(seconds=10)).timestamp()), int((datetime.datetime.now() - datetime.timedelta(seconds=10)).timestamp())))
         
         path2 = Path(os.path.join(test_path, "file2.txt"))
         path2.touch()
@@ -79,7 +79,7 @@ class TestDiskUtils(unittest.TestCase):
 
         # Set modification time to be old.
         old_time = (datetime.datetime.now() - datetime.timedelta(seconds=100)).timestamp()
-        os.utime(p, (old_time, old_time))
+        os.utime(p, (int(old_time), int(old_time)))
         
         # Test removal
         self.assertTrue(utils.remove_dir_out_of_grace(test_path, 50))

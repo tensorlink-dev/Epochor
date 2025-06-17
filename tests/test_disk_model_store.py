@@ -42,7 +42,7 @@ class TestDiskModelStore(unittest.TestCase):
         store = DiskModelStore(base_dir=self.temp_dir)
         hotkey = "test_hotkey"
         model, config = self._create_dummy_model_and_config()
-        model_id = ModelId(namespace="test_namespace", name="test_name", commit="test_commit", hash="test_hash")
+        model_id = ModelId(namespace="test_namespace", name="test_name", commit="test_commit", hash="test_hash", competition_id=1)
 
         # Store the model
         stored_model_id = store.store_model(hotkey, Model(id=model_id, model=model))
@@ -65,7 +65,7 @@ class TestDiskModelStore(unittest.TestCase):
     def test_retrieve_nonexistent_model(self):
         store = DiskModelStore(base_dir=self.temp_dir)
         hotkey = "test_hotkey"
-        model_id = ModelId(namespace="test_namespace", name="test_name", commit="test_commit", hash="nonexistent_hash")
+        model_id = ModelId(namespace="test_namespace", name="test_name", commit="test_commit", hash="nonexistent_hash", competition_id=1)
 
         with self.assertRaises(Exception):
             store.retrieve_model(
@@ -78,7 +78,7 @@ class TestDiskModelStore(unittest.TestCase):
         store = DiskModelStore(base_dir=self.temp_dir)
         hotkey = "test_hotkey"
         model, config = self._create_dummy_model_and_config()
-        model_id = ModelId(namespace="test_namespace", name="test_name", commit="test_commit", hash="test_hash")
+        model_id = ModelId(namespace="test_namespace", name="test_name", commit="test_commit", hash="test_hash", competition_id=1)
 
         # Store a model
         stored_model_id = store.store_model(hotkey, Model(id=model_id, model=model))

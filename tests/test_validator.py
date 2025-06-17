@@ -11,6 +11,13 @@ from tests.test_disk_model_store import DummyModel, DummyConfig
 import torch
 from template.base.validator import BaseValidatorNeuron
 
+class ConcreteValidator(Validator):
+    def __init__(self):
+        super().__init__()
+
+    async def forward(self, synapse: bt.Synapse) -> bt.Synapse:
+        pass
+
 class TestValidator(unittest.TestCase):
 
     def setUp(self):
@@ -32,7 +39,7 @@ class TestValidator(unittest.TestCase):
             with patch('neurons.validator.ValidatorState'):
                  with patch('neurons.validator.ModelManager'):
                     with patch('neurons.validator.WeightSetter'):
-                        self.validator = Validator()
+                        self.validator = ConcreteValidator()
         
         # Replace bittensor objects with mocks
         self.validator.wallet = self.mock_wallet
@@ -54,14 +61,14 @@ class TestValidator(unittest.TestCase):
         async def run_test():
             # Setup a fake competition
             competition = Competition(
-                id=CompetitionId.SN9_DATETIME,
+                id=CompetitionId.UNIVARIATE,
                 eval_tasks=[],
                 constraints=MagicMock()
             )
             self.validator.global_step = 0
             
             # Mock the competition schedule to return our fake competition
-            with patch('epochor.competition.utils.get_competition_schedule_for_block', return_value=[competition]):
+            with patch('epochor.utils.competition_utils.get_competition_schedule_for_block', return_value=[competition]):
                 # Set some UIDs to evaluate
                 uids_to_eval = {0, 1}
                 self.validator.state.uids_to_eval = {competition.id: uids_to_eval}
@@ -80,9 +87,9 @@ class TestValidator(unittest.TestCase):
                 # Mock the scoring function to return predictable scores
                 def mock_score_func(model, *args, **kwargs):
                     if model == model0:
-                        return 0.1, {"task1": ScoreDetails(score=0.1)} # Lower score is better
+                        return 0.1, {"task1": ScoreDetails(raw_score=0.1)} # Lower score is better
                     else:
-                        return 0.2, {"task1": ScoreDetails(score=0.2)}
+                        return 0.2, {"task1": ScoreDetails(raw_score=0.2)}
 
                 with patch('epochor.validation.validation.score_time_series_model', side_effect=mock_score_func):
                     # Mock other necessary methods
@@ -108,7 +115,7 @@ class TestValidator(unittest.TestCase):
                     # Check that uids to eval were updated
                     self.validator.state.update_uids_to_eval.assert_called_once()
 
-        self.loop.run_until_.complete(run_test())
+        self.loop.run_until_complete(run_test())
 
 if __name__ == '__main__':
     unittest.main()

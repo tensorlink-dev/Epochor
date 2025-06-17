@@ -14,7 +14,8 @@ class TestMining(unittest.TestCase):
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
-        self.model = DummyModel(DummyConfig())
+        self.config = DummyConfig()
+        self.model = DummyModel(self.config)
         self.mock_wallet = MagicMock()
         self.mock_wallet.hotkey.ss58_address = "fake_hotkey_address"
 
@@ -24,14 +25,14 @@ class TestMining(unittest.TestCase):
     def test_save_and_load_local_model(self):
         # Save the model
         model_dir = os.path.join(self.temp_dir, "model_test")
-        mining.save(self.model, model_dir)
+        mining.save(self.model, model_dir, self.config)
 
         # Check that the model files were created
         self.assertTrue(os.path.exists(os.path.join(model_dir, "config.json")))
         self.assertTrue(os.path.exists(os.path.join(model_dir, "model.safetensors")))
 
         # Load the model back
-        loaded_model = mining.load_local_model(model_dir, CompetitionId.SN9_DATETIME)
+        loaded_model = mining.load_local_model(model_dir, CompetitionId.UNIVARIATE)
 
         # Check if the loaded model is of the correct type and has the same state
         self.assertIsInstance(loaded_model, DummyModel)
@@ -48,7 +49,7 @@ class TestMining(unittest.TestCase):
             mock_remote_store = AsyncMock()
 
             # Configure the mock remote store to return a specific ModelId
-            test_model_id = ModelId(namespace="test_ns", name="test_repo", commit="test_commit", hash="test_hash", competition_id=CompetitionId.SN9_DATETIME)
+            test_model_id = ModelId(namespace="test_ns", name="test_repo", commit="test_commit", hash="test_hash", competition_id=CompetitionId.UNIVARIATE)
             mock_remote_store.upload_model.return_value = test_model_id
             
             # Configure the mock metadata store to successfully retrieve the metadata after storing
@@ -63,7 +64,7 @@ class TestMining(unittest.TestCase):
                 model=self.model,
                 repo="test_ns/test_repo",
                 wallet=self.mock_wallet,
-                competition_id=CompetitionId.SN9_DATETIME,
+                competition_id=CompetitionId.UNIVARIATE,
                 metadata_store=mock_metadata_store,
                 remote_model_store=mock_remote_store
             )
