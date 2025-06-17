@@ -359,8 +359,7 @@ class ModelManager:
                     self.state.reset_ema_uid(metadata.id.competition_id, next_uid)
 
             except Exception as e:
-                logging.error(f"Error in update loop: {e} 
- {traceback.format_exc()}")
+                logging.error(f"Error in update loop: {e} :{traceback.format_exc()}")
 
         logging.info("Exiting update models loop.")
 

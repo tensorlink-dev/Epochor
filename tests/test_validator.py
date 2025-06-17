@@ -3,9 +3,9 @@ import unittest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from neurons.validator import Validator
-from epochor.model.model_data import ModelId, ModelMetadata, EvalResult
-from epochor.model.model_constraints import Competition
-from epochor.model.model_constraints import Competition
+from epochor.model.model_data import ModelId, ModelMetadata, EvalResult, ScoreDetails
+from competitions.data import Competition
+from constants import CompetitionId
 from tests.test_disk_model_store import DummyModel, DummyConfig
 import torch
 from template.base.validator import BaseValidatorNeuron
@@ -73,7 +73,7 @@ class TestValidator(unittest.TestCase):
 
                 # Mock the local store to return models
                 model0 = DummyModel(DummyConfig())
-                model1 = DummyModel(Dummy-Config())
+                model1 = DummyModel(DummyConfig())
                 self.validator.local_store.retrieve_model.side_effect = lambda hotkey, model_id: model0 if hotkey == "hotkey0" else model1
 
                 # Mock the scoring function to return predictable scores
@@ -107,7 +107,7 @@ class TestValidator(unittest.TestCase):
                     # Check that uids to eval were updated
                     self.validator.state.update_uids_to_eval.assert_called_once()
 
-        self.loop.run_until_complete(run_test())
+        self.loop.run_until_.complete(run_test())
 
 if __name__ == '__main__':
     unittest.main()
