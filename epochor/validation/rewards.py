@@ -9,7 +9,7 @@ Supports exponentiation, first-place boost, and NaN protection.
 import numpy as np
 from typing import Dict, Callable
 from epochor.config import EPOCHOR_CONFIG
-from epochor.utils.logging import reinitialize
+from epochor.utils.logging import reinitialize_logging as reinitialize 
 from competitions.epsilon import EpsilonFunc
 
 logger = reinitialize()
