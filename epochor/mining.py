@@ -164,6 +164,7 @@ def save(model:  BaseTemporalModel, model_dir: str):
     save_hf(
         model=model,
         save_directory=model_dir,
+        config=model.config,
         safe=True,
     )
 

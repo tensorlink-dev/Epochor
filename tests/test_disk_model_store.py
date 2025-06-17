@@ -1,3 +1,4 @@
+
 import unittest
 import tempfile
 import shutil
@@ -73,41 +74,38 @@ class TestDiskModelStore(unittest.TestCase):
                 model_id,
                 model_constraints=ModelConstraints(model_cls=DummyModel, config_cls=DummyConfig)
             )
-
+    
     def test_delete_unreferenced_models(self):
         store = DiskModelStore(base_dir=self.temp_dir)
         hotkey = "test_hotkey"
-        model, config = self._create_dummy_model_and_config()
-        model_id = ModelId(namespace="test_namespace", name="test_name", commit="test_commit", hash="test_hash", competition_id=1)
+        model, config = self._create_dummy_model_and_c
+onfig()
 
-        # Store a model
-        stored_model_id = store.store_model(hotkey, Model(id=model_id, model=model))
+        # Store two models
+        model_id_1 = ModelId(namespace="test_namespace", name="test_name_1", commit="test_commit_1", hash="test_hash_1", competition_id=1)
+        stored_model_id_1 = store.store_model(hotkey, Model(id=model_id_1, model=model))
 
-        # Call delete_unreferenced_models with an empty valid_models_by_hotkey dict
-        store.delete_unreferenced_models({}, grace_period_seconds=0)
+        model_id_2 = ModelId(namespace="test_namespace", name="test_name_2", commit="test_commit_2", hash="test_hash_2", competition_id=1)
+        stored_model_id_2 = store.store_model(hotkey, Model(id=model_id_2, model=model))
 
-        # Check that the model is deleted
+        # Call delete_unreferenced_models with only the first model as valid
+        store.delete_unreferenced_models({hotkey: {stored_model_id_1}}, grace_period_seconds=0)
+
+        # Check that the first model is not deleted
+        retrieved_model_1 = store.retrieve_model(
+            hotkey,
+            stored_model_id_1,
+            model_constraints=ModelConstraints(model_cls=DummyModel, config_cls=DummyConfig)
+        )
+        self.assertIsNotNone(retrieved_model_1)
+
+        # Check that the second model is deleted
         with self.assertRaises(Exception):
             store.retrieve_model(
                 hotkey,
-                stored_model_id,
+                stored_model_id_2,
                 model_constraints=ModelConstraints(model_cls=DummyModel, config_cls=DummyConfig)
             )
-
-        # Store the model again
-        stored_model_id = store.store_model(hotkey, Model(id=model_id, model=model))
-
-        # Call delete_unreferenced_models with the model in valid_models_by_hotkey
-        store.delete_unreferenced_models({hotkey: stored_model_id}, grace_period_seconds=0)
-
-        # Check that the model is not deleted
-        retrieved_model = store.retrieve_model(
-            hotkey,
-            stored_model_id,
-            model_constraints=ModelConstraints(model_cls=DummyModel, config_cls=DummyConfig)
-        )
-        self.assertIsNotNone(retrieved_model)
-
 
 if __name__ == "__main__":
     unittest.main()
