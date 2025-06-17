@@ -14,7 +14,7 @@ from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.model_data import Model, ModelId
 from epochor.model.model_constraints import ModelConstraints
 from epochor.model.model_updater import MinerMisconfiguredError
-from epochor.model.model_utils import save_hf, load_hf
+from temporal.utils.hf_accessors import save_hf, load_hf
 from epochor.utils.hashing import hash_directory
 
 
@@ -118,7 +118,7 @@ class HuggingFaceModelStore(RemoteModelStore):
                 model_id.name, "Missing Hugging Face commit or hash in ModelId."
             )
 
-        repo_id = f"{model_id.namespace}/{model_id.name}"
+        repo_id = f"{model_id.namespace}/{model.id.name}"
         token = self._ensure_token()
         api = HfApi(token=token)
 

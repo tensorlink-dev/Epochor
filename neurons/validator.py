@@ -28,7 +28,7 @@ from retry import retry
 from template.base.validator import BaseValidatorNeuron
 from epochor.model.model_constraints import Competition
 from constants import CompetitionId
-from epochor.utils import competition_utils
+from epochor.utils.competition_utils import get_competition_schedule_for_block
 from . import config
 from .validator_components import ValidatorState, ModelManager, WeightSetter, should_retry_model
 from epochor.model.model_updater import ModelUpdater, MinerMisconfiguredError
@@ -131,7 +131,7 @@ class Validator(BaseValidatorNeuron):
         )
 
         # Initial weights from loaded state
-        competition_schedule = competition_utils.get_competition_schedule_for_block(
+        competition_schedule = get_competition_schedule_for_block(
             self._get_current_block(), constants.COMPETITION_SCHEDULE_BY_BLOCK
         )
         self.weights = self.state.ema_tracker.get_subnet_weights(competition_schedule)
@@ -164,7 +164,7 @@ class Validator(BaseValidatorNeuron):
         cur_block = self._get_current_block()
         logging.info(f"Current block: {cur_block}")
         
-        competition_schedule = competition_utils.get_competition_schedule_for_block(
+        competition_schedule = get_competition_schedule_for_block(
             block=cur_block,
             schedule_by_block=constants.COMPETITION_SCHEDULE_BY_BLOCK,
         )
