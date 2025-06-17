@@ -36,6 +36,7 @@ COMPETITION_SCHEDULE_BY_BLOCK: List[Tuple[int, List[Competition]]] = [
                         },
                         weight=1.00 ,
                     )
+                ]
             )
         ]
     )
