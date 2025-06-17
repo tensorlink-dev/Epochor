@@ -3,7 +3,7 @@ from typing import Type, Dict, List
 from constants import CompetitionId
 from dataclasses import dataclass
 from temporal.models.base_model import  BaseTemporalModel as model_cls 
-from temporal.configs import  TransformerTimeSeriesConfig as config_cls
+from temporal.configs.transformer_config import  TransformerTimeSeriesConfig as config_cls
 from enum import IntEnum
 
 class ModelConstraints(BaseModel):
