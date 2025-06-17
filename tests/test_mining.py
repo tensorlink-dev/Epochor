@@ -35,7 +35,7 @@ class TestMining(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(model_dir, "model.safetensors")))
 
         # Load the model back
-        loaded_model = mining.load_local_model(model_dir, DummyModel)
+        loaded_model = mining.load_local_model(model_dir, CompetitionId.UNIVARIATE)
 
         # Check if the loaded model is of the correct type and has the same state
         self.assertIsInstance(loaded_model, DummyModel)

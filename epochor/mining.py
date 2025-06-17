@@ -26,7 +26,7 @@ import huggingface_hub
 import torch
 
 from constants import CompetitionId
-from epochor.model.model_constraints import Competition
+from epochor.model.model_constraints import Competition, MODEL_CONSTRAINTS_BY_COMPETITION_ID
 from epochor.utils import logging
 import constants
 
@@ -83,7 +83,7 @@ async def push(
     if remote_model_store is None:
         remote_model_store = HuggingFaceModelStore()
 
-    model_constraints = constants.MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
+    model_constraints = MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
         competition_id, None
     )
     if not model_constraints:
@@ -195,7 +195,7 @@ def load_local_model(
     model_dir: str, competition_id: str
 ) -> Union[BaseTemporalModel, "torch.nn.Module"]:
     """Loads a model from a directory."""
-    model_constraints = constants.MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
+    model_constraints = MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
         competition_id, None
     )
     if not model_constraints:
@@ -245,7 +245,7 @@ async def load_remote_model(
     if not model_metadata:
         raise ValueError(f"No model metadata found for miner {uid}")
 
-    model_constraints = constants.MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
+    model_constraints = MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
         model_metadata.id._competition_id, None
     )
 

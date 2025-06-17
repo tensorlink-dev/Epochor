@@ -14,7 +14,6 @@ from typing import List, Tuple
 from keylimiter import KeyLimiter
 from datetime import timedelta
 from enum import IntEnum
-from epochor.model.model_constraints import ModelConstraints
 
 class CompetitionId(IntEnum):
     """
@@ -82,21 +81,6 @@ model_retry_cadence = 7200  # 1 hour.
 alpha = 0.05
 # The limit on the number of updated models to hold in memory.
 updated_models_limit = 10
-
-MODEL_CONSTRAINTS_BY_COMPETITION_ID = {
-    CompetitionId.UNIVARIATE: ModelConstraints(
-        max_model_size_bytes=10 * 1024 * 1024,  # 10 MB
-        max_model_parameters=5_000_000,
-    ),
-    CompetitionId.UNIVARIATE_COVARS: ModelConstraints(
-        max_model_size_bytes=20 * 1024 * 1024,  # 20 MB
-        max_model_parameters=10_000_000,
-    ),
-    CompetitionId.MULTIVARIATE: ModelConstraints(
-        max_model_size_bytes=50 * 1024 * 1024,  # 50 MB
-        max_model_parameters=25_000_000,
-    ),
-}
 
 def get_list_of_uids(
     pass_through_config: int, self_uid: int, metagraph: "bt.metagraph.Metagraph"

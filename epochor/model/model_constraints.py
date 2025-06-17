@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
 from typing import Type, Dict, List
-from constants import CompetitionId
 from dataclasses import dataclass, field
 from temporal.models.base_model import  BaseTemporalModel as model_cls 
 from temporal.configs.transformer_config import  TransformerTimeSeriesConfig as config_cls
@@ -58,7 +57,7 @@ class Competition:
     eval_tasks: List[EvalTask] = field(default_factory=list)
 
 # Mapping from CompetitionId to the constraints for each competition.
-MODEL_CONSTRAINTS_BY_COMPETITION_ID: Dict[CompetitionId, ModelConstraints] = {
-    CompetitionId.UNIVARIATE: ModelConstraints(),
+MODEL_CONSTRAINTS_BY_COMPETITION_ID: Dict[int, ModelConstraints] = {
+    0: ModelConstraints(),
     # CompetitionId.CUSTOM_TRACK_1: ModelConstraints(max_model_size_bytes=20 * 1024 * 1024),
 }

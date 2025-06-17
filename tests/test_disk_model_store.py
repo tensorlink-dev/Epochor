@@ -74,12 +74,11 @@ class TestDiskModelStore(unittest.TestCase):
                 model_id,
                 model_constraints=ModelConstraints(model_cls=DummyModel, config_cls=DummyConfig)
             )
-    
+
     def test_delete_unreferenced_models(self):
         store = DiskModelStore(base_dir=self.temp_dir)
         hotkey = "test_hotkey"
-        model, config = self._create_dummy_model_and_c
-onfig()
+        model, config = self._create_dummy_model_and_config()
 
         # Store two models
         model_id_1 = ModelId(namespace="test_namespace", name="test_name_1", commit="test_commit_1", hash="test_hash_1", competition_id=1)
