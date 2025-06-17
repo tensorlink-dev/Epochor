@@ -67,7 +67,7 @@ class Validator(BaseValidatorNeuron):
         self.config = config.validator_config() if config else config.validator_config()
 
         # === Bittensor objects ====
-        self.wallet = bt.wallet(config=self.config)
+        self.wallet = bt.wallet(config=self.config) if self.config.wallet.name and self.config.wallet.hotkey else None
         self.subtensor = bt.subtensor(config=self.config)
         self.weights_subtensor = bt.subtensor(config=self.config)
         self.dendrite = bt.dendrite(wallet=self.wallet)
