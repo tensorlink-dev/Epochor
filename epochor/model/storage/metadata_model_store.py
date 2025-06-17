@@ -7,7 +7,7 @@ from typing import Optional
 import bittensor as bt
 import logging
 
-from epochor.model.data import ModelId, ModelMetadata
+from epochor.model.model_data import ModelId, ModelMetadata
 from epochor.model.base_metadata_model_store import ModelMetadataStore
 from epochor.utils.misc import run_in_thread  # helper to offload sync calls
 
