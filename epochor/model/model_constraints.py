@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Type, Dict, List
 from constants import CompetitionId
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from temporal.models.base_model import  BaseTemporalModel as model_cls 
 from temporal.configs.transformer_config import  TransformerTimeSeriesConfig as config_cls
 from enum import IntEnum
@@ -55,7 +55,7 @@ class Competition:
     reward_percentage: float
 
     # The set of tasks used to evaluate models in this competition.
-    eval_tasks: List[EvalTask] = dataclasses.field(default_factory=list)
+    eval_tasks: List[EvalTask] = field(default_factory=list)
 
 # Mapping from CompetitionId to the constraints for each competition.
 MODEL_CONSTRAINTS_BY_COMPETITION_ID: Dict[CompetitionId, ModelConstraints] = {
