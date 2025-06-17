@@ -2,6 +2,7 @@
 import unittest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
+import bittensor as bt
 from neurons.validator import Validator
 from epochor.validation.validation import ScoreDetails
 from epochor.model.model_data import ModelId, ModelMetadata, EvalResult
