@@ -37,9 +37,11 @@ from epochor.model.storage.disk_model_store import DiskModelStore
 from epochor.model.storage.hf_model_store import HuggingFaceModelStore
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
 from epochor.utils import metagraph_utils
-from epochor.utils.metagraph_syncer import MetagraphSyncer
 from epochor.utils.miner_iterator import MinerIterator
-from epochor.utils.perf_monitor import PerfMonitor
+
+from taoverse.utilities.perf_monitor import PerfMonitor
+from taoverse.metagraph.metagraph_syncer import MetagraphSyncer
+
 import constants
 
 # Epochor Imports

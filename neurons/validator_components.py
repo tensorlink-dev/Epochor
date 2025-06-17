@@ -26,12 +26,12 @@ from epochor.model.model_tracker import ModelTracker
 from epochor.model.model_updater import MinerMisconfiguredError
 from epochor.model.model_data import EvalResult
 from competitions.epsilon import EpsilonFunc
-from taoverse.metagraph import utils as metagraph_utils
-from taoverse.utilities.perf_monitor import PerfMonitor
+from epochor.utils import metagraph_utils
 from constants import CompetitionId
 from epochor.utils import competition_utils
 from epochor.model.storage.disk_model_store import DiskModelStore # Import DiskModelStore
 
+from taoverse.utilities.perf_monitor import PerfMonitor
 
 def should_retry_model(
     epsilon_func: EpsilonFunc,
