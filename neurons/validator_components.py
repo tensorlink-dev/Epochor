@@ -26,7 +26,7 @@ from epochor.model.model_tracker import ModelTracker
 from epochor.model.model_updater import MinerMisconfiguredError
 from epochor.model.model_data import EvalResult
 from competitions.epsilon import EpsilonFunc
-from taoverse.utils import metagraph_utils
+from taoverse.metagraph import utils as metagraph_utils
 from taoverse.utils.perf_monitor import PerfMonitor
 from constants import CompetitionId
 from epochor.utils import competition_utils
