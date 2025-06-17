@@ -112,9 +112,4 @@ class EvalResult:
     winning_model_score: float
 
 
-@dataclasses.dataclass
-class ScoreDetails:
-    """Additional details about a score."""
 
-    # The score for this task.
-    score: float = math.inf
