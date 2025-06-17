@@ -23,10 +23,10 @@ import math
 import typing
 import numpy as np
 
-import epochor.utils.logging as logging
+from epochor.utils import logging
 import torch
-from epochor.competition.epsilon import EpsilonFunc
-from epochor.model.data import Model
+from epochor.model.model_constraints import EpsilonFunc
+from epochor.model.model_data import Model
 from epochor.evaluation.eval_task import EvalTask
 from epochor.config import EPOCHOR_CONFIG
 from epochor.evaluation.evaluation import CRPSEvaluator

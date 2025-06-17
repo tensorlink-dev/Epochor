@@ -3,7 +3,7 @@ import pickle
 import typing
 from typing import Dict, Any, Optional
 import torch
-from epochor.competition.data import Competition
+from epochor.model.model_constraints import Competition
 
 from competitions.competitions import get_current_competition
 

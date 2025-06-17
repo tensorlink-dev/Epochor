@@ -1,6 +1,6 @@
 import dataclasses
 
-from epochor.evaluation.method import NormalizationId
+from epochor.model.model_constraints import NormalizationId
 
 @dataclasses.dataclass
 class EvalTask:

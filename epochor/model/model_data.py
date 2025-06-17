@@ -1,6 +1,6 @@
 import dataclasses
 from typing import ClassVar, Optional, Any
-from temporal.models.base-model import  BaseTemporalModel
+from temporal.models.base_model import BaseTemporalModel
 
 # The maximum bytes for metadata on the chain.
 MAX_METADATA_BYTES = 128

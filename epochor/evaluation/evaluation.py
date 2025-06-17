@@ -8,8 +8,6 @@ to compute the CRPS for ensemble forecasts.
 import numpy as np
 from properscoring import crps_ensemble
 
-from epochor.config import EPOCHOR_CONFIG
-
 
 class BaseEvaluator:
     """
@@ -31,36 +29,9 @@ class BaseEvaluator:
 
     def score_to_weight(self, scores: np.ndarray) -> np.ndarray:
         """
-        Convert raw scores into normalized weights. Lower scores are considered better.
-
-        The conversion uses a power law and optional boosting based on configuration.
-        A lower score results in a higher weight.
-
-        Args:
-            scores: array of raw performance scores (lower is better).
-
-        Returns:
-            array of normalized weights summing to 1.
+        score to weight placeholder
         """
-        # Invert scores so that lower scores get higher values.
-        # Add a small epsilon to avoid division by zero.
-        inverted_scores = 1 / (scores + 1e-9)
-        
-        # Replace any NaNs or infinities that may have occurred
-        inverted_scores = np.nan_to_num(inverted_scores, nan=0.0, posinf=np.nanmax(inverted_scores[np.isfinite(inverted_scores)]))
-        
-        # Clip scores to be non-negative
-        processed_scores = np.clip(inverted_scores, 0.0, None)
-
-        if EPOCHOR_CONFIG.reward_exponent != 1.0:
-            processed_scores = np.power(processed_scores, EPOCHOR_CONFIG.reward_exponent)
-
-        total = processed_scores.sum()
-        if total <= 0:
-            # If all scores are zero, return uniform weights
-            return np.ones_like(processed_scores) / len(processed_scores) if len(processed_scores) > 0 else np.array([])
-
-        return processed_scores / total
+        raise NotImplementedError
 
 
 class CRPSEvaluator(BaseEvaluator):

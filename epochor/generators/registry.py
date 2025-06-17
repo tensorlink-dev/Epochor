@@ -11,7 +11,7 @@ providing better type safety and code completion support.
 from enum import Enum
 
 # Import generator functions from their respective modules
-from .v1.synthetic import (
+from epochor.generators.v1.synthetic import (
     generate_trend,
     generate_seasonality,
     generate_noise,
@@ -32,7 +32,7 @@ from .v1.synthetic import (
     generate_damped_harmonic,
     generate_amplitude_modulated_sinusoid,
 )
-from .statistical import (
+from epochor.generators.v1.statistical import (
     generate_ar,
     generate_ma,
     generate_arma,
@@ -50,13 +50,13 @@ from .statistical import (
     generate_tgarch,
     generate_levy_flight,
 )
-from .chaotic import (
+from epochor.generators.v1.chaotic import (
     generate_lorenz,
     generate_rossler,
     generate_duffing,
     generate_logistic_map,
 )
-from .mechanistic import (
+from epochor.generators.v1.mechanistic import (
     generate_pendulum,
     generate_lotka_volterra,
     generate_sir,
@@ -64,7 +64,7 @@ from .mechanistic import (
     generate_local_linear_trend,
     generate_holt_winters,
 )
-from .gp import (
+from epochor.generators.v1.gp import (
     generate_gaussian_process,
 )
 

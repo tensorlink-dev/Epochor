@@ -5,7 +5,7 @@ from typing import Dict, Any, List
 import numpy as np
 import torch
 
-from .base import Benchmarker
+from epochor.generators.base import Benchmarker
 from epochor.generators.kernel_synth import KernelSynth
 
 

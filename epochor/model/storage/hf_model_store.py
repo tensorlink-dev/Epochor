@@ -10,11 +10,11 @@ import bittensor as bt
 from huggingface_hub import HfApi, snapshot_download
 from huggingface_hub.utils import RepositoryNotFoundError
 
-from epochor.model.storage.remote_model_store import RemoteModelStore
-from epochor.model.data import Model, ModelId
-from epochor.model.competition.data import ModelConstraints
+from epochor.model.base_hf_model_store import RemoteModelStore
+from epochor.model.model_data import Model, ModelId
+from epochor.model.model_constraints import ModelConstraints
 from epochor.model.model_updater import MinerMisconfiguredError
-from temporal.utils.hf_accessors import save_hf, load_hf
+from epochor.model.model_utils import save_hf, load_hf
 from epochor.utils.hashing import hash_directory
 
 
@@ -91,6 +91,7 @@ HuggingFaceModelStore(RemoteModelStore):
             name=model.id.name,
             commit=commit_hash,
             hash=secure_hash,
+            competition_id=model.id.competition_id
         )
 
     async def download_model(

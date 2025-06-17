@@ -13,6 +13,20 @@ import torch
 from typing import List, Tuple
 from keylimiter import KeyLimiter
 from datetime import timedelta
+from enum import IntEnum
+
+class CompetitionId(IntEnum):
+    """
+    Defines the different competition tracks available in the Epochor subnet.
+    Validators and miners can use this to tailor their behavior based on the
+    active competition.
+    """
+    UNIVARIATE = 0
+    UNIVARIATE_COVARS = 1
+    MULTIVARIATE =  2
+
+    def __repr__(self) -> str:
+        return f"{self.value}"
 
 # Local development mode.
 IS_LOCAL_DEVELOPMENT_MODE = bool(os.environ.get("IS_LOCAL_DEVELOPMENT_MODE", False))

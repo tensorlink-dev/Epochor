@@ -2,7 +2,7 @@ from typing import Dict, Optional, List
 import pickle
 import threading
 
-from epochor.model.data import ModelMetadata, EvalResult
+from epochor.model.model_data import ModelMetadata, EvalResult
 
 class ModelTracker:
     """Tracks the current model metadata for each miner."""

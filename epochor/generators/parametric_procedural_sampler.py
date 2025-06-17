@@ -4,7 +4,7 @@ import inspect
 from typing import Callable, Sequence, Optional, Dict, Any, Union, Tuple
 
 # Import Enums and registries
-from .registry import (
+from epochor.generators.registry import (
     blended_registry,
     statistical_registry,
     chaotic_registry,
@@ -18,7 +18,7 @@ from .registry import (
 )
 
 # Import parameter spaces which now use Enums as keys
-from .param_spaces import global_param_space, synthetic_param_space
+from epochor.generators.param_spaces import global_param_space, synthetic_param_space
 
 # Define GeneratorNameType for type hinting
 GeneratorNameType = Union[

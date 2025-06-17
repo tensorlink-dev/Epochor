@@ -25,29 +25,30 @@ import torch
 import wandb
 from retry import retry
 
-from template.base.validator import BaseValidatorNeuron
-from epochor.competition.data import Competition, EpsilonFunc, CompetitionId
-from epochor.competition import utils as competition_utils
-from neurons import config
-from neurons.validator_components import ValidatorState, ModelManager, WeightSetter, should_retry_model
+from epochor.base.validator import BaseValidatorNeuron
+from epochor.model.model_constraints import Competition, EpsilonFunc
+from constants import CompetitionId
+from epochor.utils import competition_utils
+from . import config
+from .validator_components import ValidatorState, ModelManager, WeightSetter, should_retry_model
 from epochor.model.model_updater import ModelUpdater, MinerMisconfiguredError
 from epochor.model.storage.disk_model_store import DiskModelStore
 from epochor.model.storage.hf_model_store import HuggingFaceModelStore
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
 from epochor.utils import metagraph_utils
-from taoverse.metagraph.metagraph_syncer import MetagraphSyncer
-from taoverse.metagraph.miner_iterator import MinerIterator
-from taoverse.utilities.perf_monitor import PerfMonitor
+from epochor.utils.metagraph_syncer import MetagraphSyncer
+from epochor.utils.miner_iterator import MinerIterator
+from epochor.utils.perf_monitor import PerfMonitor
 import constants
 
 # Epochor Imports
-from epochor.dataloaders import DatasetLoaderFactory
-from epochor.evaluation import Evaluator
-from epochor.model.data import EvalResult, ScoreDetails
-from epochor.rewards import compute_scores
+from epochor.datasets.dataloaders import DatasetLoaderFactory
+from epochor.evaluation.evaluation import BaseEvaluator
+from epochor.model.model_data import EvalResult, ScoreDetails
+from epochor.validation.rewards import compute_scores
 from epochor import utils
 from epochor.model import model_utils
-from eopchor.validation.validation import  score_time_series_model
+from epochor.validation.validation import  score_time_series_model
 
 
 @dataclasses.dataclass
@@ -232,7 +233,7 @@ class Validator(BaseValidatorNeuron):
                     with compute_loss_perf.sample():
                         score, score_details = utils.run_in_subprocess(
                             functools.partial(
-                                score_time_series_model, model_i, Evaluator(), samples, self.config.device, seed
+                                score_time_series_model, model_i, BaseEvaluator(), samples, self.config.device, seed
                             ),
                             ttl=550, mode="spawn"
                         )

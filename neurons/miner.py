@@ -25,8 +25,8 @@ import bittensor as bt
 from dotenv import load_dotenv
 
 from epochor.utils import logging
-from epochor.utils import metagraph_utils as epochor_utils
-from epochor.competitions import competitions
+from epochor.utils import metagraph_utils
+from competitions import competitions
 
 load_dotenv()  # take environment variables from .env.
 
@@ -72,7 +72,9 @@ def get_config():
 async def main(config: bt.config):
     # Create bittensor objects.
     bt.logging(config=config, logging_dir=config.full_path)
-    bt.logging.info(
+    logging.reinitialize_logging()
+
+    logging.info(
         f"Running miner for subnet: {config.netuid} on network: {config.subtensor.chain_endpoint} with config: {config}"
     )
 
@@ -83,7 +85,7 @@ async def main(config: bt.config):
 
     # This miner does not train, but instead serves a model that is uploaded externally.
     # It just needs to stay alive on the network.
-    bt.logging.info(
+    logging.info(
         "This miner does not train. Use scripts/upload_model_miner.py to upload a model."
     )
 
@@ -99,49 +101,49 @@ async def main(config: bt.config):
     # Serve the axon to the network.
     try:
         axon.serve(netuid=config.netuid, subtensor=subtensor)
-        bt.logging.info(
+        logging.info(
             f"Serving axon on network: {config.subtensor.chain_endpoint} with netuid: {config.netuid}"
         )
     except Exception as e:
-        bt.logging.error(f"Failed to serve axon: {e}")
+        logging.error(f"Failed to serve axon: {e}")
         pass
 
     # Start the axon in the background.
     try:
         axon.start()
-        bt.logging.info(f"Axon started on port: {config.axon.port}")
+        logging.info(f"Axon started on port: {config.axon.port}")
     except Exception as e:
-        bt.logging.error(f"Failed to start axon: {e}")
+        logging.error(f"Failed to start axon: {e}")
         pass
 
     if not config.offline:
-        epochor_utils.assert_registered(wallet, metagraph)
+        metagraph_utils.assert_registered(wallet, metagraph)
 
     # Keep the miner alive indefinitely.
-    bt.logging.info("Miner running...")
+    logging.info("Miner running...")
     try:
         while True:
             time.sleep(60)
             if not config.offline:
                 # Periodically check if the miner is registered.
                 try:
-                    my_uid = epochor_utils.assert_registered(wallet, metagraph)
-                    bt.logging.trace(f"Miner is registered with UID {my_uid}.")
+                    my_uid = metagraph_utils.assert_registered(wallet, metagraph)
+                    logging.trace(f"Miner is registered with UID {my_uid}.")
                 except Exception as e:
-                    bt.logging.warning(f"Could not check registration status: {e}")
+                    logging.warning(f"Could not check registration status: {e}")
 
                 # Sync metagraph
                 try:
                     metagraph.sync(subtensor=subtensor)
-                    bt.logging.trace("Metagraph synced.")
+                    logging.trace("Metagraph synced.")
                 except Exception as e:
-                    bt.logging.warning(f"Could not sync metagraph: {e}")
+                    logging.warning(f"Could not sync metagraph: {e}")
 
     except KeyboardInterrupt:
         axon.stop()
-        bt.logging.success("Miner stopped by user.")
+        logging.success("Miner stopped by user.")
     except Exception as e:
-        bt.logging.error(f"An error occurred: {e}")
+        logging.error(f"An error occurred: {e}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import abc
 from typing import Optional
-from epochor.model.data import ModelId, ModelMetadata
+from epochor.model.model_data import ModelId, ModelMetadata
 
 
 class ModelMetadataStore(abc.ABC):

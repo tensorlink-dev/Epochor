@@ -25,8 +25,11 @@ import bittensor as bt
 import huggingface_hub
 import torch
 
-from epochor import constants, logging
-from epochor.competition import CompetitionId
+from constants import CompetitionId
+from epochor.model.model_constraints import Competition
+from epochor.utils import logging
+import constants
+
 from epochor.model import model_utils
 from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.base_metadata_model_store import ModelMetadataStore
@@ -35,7 +38,7 @@ from epochor.model.model_utils import get_hash_of_two_strings
 from epochor.model.storage.hf_model_store import HuggingFaceModelStore
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
 from temporal.utils.hf_accessors import save_hf, load_hf
-from temporal.models.base-model import  BaseTemporalModel
+from temporal.models.base_model import  BaseTemporalModel
 
 def model_path(base_dir: str, run_id: str) -> str:
     """
@@ -255,7 +258,7 @@ async def load_remote_model(
     return model.pt_model
 
 
-async def load_best_model(
+async def load_best_.model(
     download_dir: str,
     competition_id: CompetitionId,
     metagraph: Optional[bt.metagraph] = None,

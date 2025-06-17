@@ -19,17 +19,17 @@ import bittensor as bt
 import torch
 import numpy
 
-from epochor import constants
-from epochor import utils
-from epochor.ema_tracker import EMATracker
+import constants
+from epochor.utils import misc as utils
+from epochor.validation.ema_tracker import EMATracker
 from epochor.model.model_tracker import ModelTracker
 from epochor.model.model_updater import MinerMisconfiguredError
-from epochor.model.data import EvalResult
-from epochor.competition.data import EpsilonFunc
-from epochor.utils import metagraph_utils
-from taoverse.utilities.perf_monitor import PerfMonitor
-from competitions.data import CompetitionId
-from epochor.competition import utils as competition_utils
+from epochor.model.model_data import EvalResult
+from epochor.model.model_constraints import EpsilonFunc
+from taoverse.utils import metagraph_utils
+from taoverse.utils.perf_monitor import PerfMonitor
+from constants import CompetitionId
+from epochor.utils import competition_utils
 from epochor.model.storage.disk_model_store import DiskModelStore # Import DiskModelStore
 
 

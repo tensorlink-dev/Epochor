@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from temporal.utils.hf_accessors import save_hf, load_hf
-import epochor.utils.logging as logging
-from epochor.model.data import Model, ModelId
-from epochor.model.competition.data import ModelConstraints
+from epochor.utils import logging
+from epochor.model.model_data import Model, ModelId
+from epochor.model.model_constraints import ModelConstraints
 from epochor.model.storage.disk import utils
 from epochor.model.base_disk_model_store import LocalModelStore
 from epochor.utils.hashing import hash_directory
@@ -65,7 +65,8 @@ class DiskModelStore(LocalModelStore):
             namespace=model.id.namespace,
             name=model.id.name,
             commit=commit,
-            hash=model_hash
+            hash=model_hash,
+            competition_id=model.id.competition_id
         )
 
     def retrieve_model(

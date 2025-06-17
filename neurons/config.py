@@ -3,7 +3,7 @@ import argparse
 import os
 import bittensor as bt
 import torch
-import epochor.constants as constants
+import constants
 
 def add_base_args(parser):
     """Adds arguments used by all nodes."""

@@ -13,8 +13,8 @@ from typing import Dict, Any, List
 import numpy as np
 import torch
 
-from .base import Benchmarker
-from epochor.generators.sampler import random_blended_config, SyntheticGenerator
+from epochor.generators.base import Benchmarker
+from epochor.generators.parametric_procedural_sampler import random_blended_config, SyntheticGenerator
 
 
 class SyntheticBenchmarkerV1(Benchmarker):

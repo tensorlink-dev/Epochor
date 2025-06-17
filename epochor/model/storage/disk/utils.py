@@ -2,7 +2,7 @@ import datetime
 import os
 import shutil
 
-from epochor.model.data import ModelId
+from epochor.model.model_data import ModelId
 
 
 def get_local_miners_dir(base_dir: str) -> str:
