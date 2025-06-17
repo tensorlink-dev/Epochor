@@ -532,7 +532,33 @@ class WeightSetter:
         self.metagraph = metagraph
         self.weights = weights
         self.stop_event = threading.Event()
-        self.weight_thread = threading.Thread(target=self.set_weights, daemon=_try_set_weights() -> typing.Tuple[bool, str]:
+        self.weight_thread = threading.Thread(target=self.set_weights, daemon=True)
+        self.weight_lock = threading.RLock()
+
+    def set_weights(self):
+        while not self.stop_event.is_set():
+            try:
+                time.sleep(constants.set_weights_cadence)
+                asyncio.run(self._try_set_weights_loop())
+            except Exception as e:
+                logging.error(f"Error in weight setting loop: {e}")
+
+    async def _try_set_weights_loop(self):
+        """The main weight setting loop."""
+        while not self.stop_event.is_set():
+            try:
+                # Set weights every 1.5 hours.
+                await asyncio.sleep(constants.set_weights_cadence.total_seconds())
+                await self._set_weights()
+            except Exception as e:
+                logging.error(
+                    f"Error in weight setting loop: {e}. {traceback.format_exc()}"
+                )
+
+    async def _set_weights(self, ttl: int = 60) -> None:
+        """Sets the weights on the chain."""
+
+        async def _try_set_weights() -> typing.Tuple[bool, str]:
             try:
                 with self.metagraph_lock:
                     uids = self.metagraph.uids
