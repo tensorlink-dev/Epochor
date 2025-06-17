@@ -5,8 +5,8 @@ import os
 import torch
 from transformers import PretrainedConfig, PreTrainedModel
 from epochor.model.storage.disk_model_store import DiskModelStore
-from epochor.model.data import Model, ModelId
-from epochor.model.competition.data import ModelConstraints
+from epochor.model.model_data import Model, ModelId
+from epochor.model.model_constraints import ModelConstraints
 
 # Dummy model and config for testing
 class DummyConfig(PretrainedConfig):

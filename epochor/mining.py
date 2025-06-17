@@ -34,7 +34,7 @@ from epochor.model import model_utils
 from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.base_metadata_model_store import ModelMetadataStore
 from epochor.model.model_data import Model, ModelId
-from epochor.model.model_utils import get_hash_of_two_strings
+from epochor.utils.hashing import get_hash_of_two_strings
 from epochor.model.storage.hf_model_store import HuggingFaceModelStore
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
 from temporal.utils.hf_accessors import save_hf, load_hf
