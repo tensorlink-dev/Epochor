@@ -1,6 +1,7 @@
 import dataclasses
 from typing import ClassVar, Optional, Any
 from temporal.models.base_model import BaseTemporalModel
+import math
 
 # The maximum bytes for metadata on the chain.
 MAX_METADATA_BYTES = 128
@@ -109,3 +110,11 @@ class EvalResult:
 
     # The score of the winning model when this model was evaluated.
     winning_model_score: float
+
+
+@dataclasses.dataclass
+class ScoreDetails:
+    """Additional details about a score."""
+
+    # The score for this task.
+    score: float = math.inf

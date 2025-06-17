@@ -7,3 +7,4 @@ numpy>=1
 setuptools>=68
 taoverse
 #temporal 
+properscoring

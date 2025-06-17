@@ -46,11 +46,11 @@ import constants
 # Epochor Imports
 from epochor.datasets.dataloaders import DatasetLoaderFactory
 from epochor.evaluation.evaluation import BaseEvaluator
-from epochor.model.model_data import EvalResult, ScoreDetails
+from epochor.model.model_data import EvalResult
 from epochor.validation.rewards import compute_scores
 from epochor import utils
 from epochor.model import model_utils
-from epochor.validation.validation import  score_time_series_model
+from epochor.validation.validation import  score_time_series_model, ScoreDetails
 
 
 @dataclasses.dataclass
