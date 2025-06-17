@@ -47,13 +47,9 @@ import constants
 from epochor.datasets.dataloaders import DatasetLoaderFactory
 from epochor.evaluation.evaluation import BaseEvaluator
 from epochor.model.model_data import EvalResult
-from epochor.validation.validation
-
-
- import compute_scores
 from epochor import utils
 from epochor.model import model_utils
-from epochor.validation.validation import  score_time_series_model, ScoreDetails
+from epochor.validation.validation import  score_time_series_model, ScoreDetails, compute_scores
 
 
 @dataclasses.dataclass
