@@ -21,10 +21,7 @@ from epochor.utils.hashing import hash_directory
 logger = logging.getLogger(__name__)
 
 
-class 
-
-
-HuggingFaceModelStore(RemoteModelStore):
+class HuggingFaceModelStore(RemoteModelStore):
     """Epochor’s HF‐Hub implementation for storing & retrieving TS models."""
 
     @classmethod

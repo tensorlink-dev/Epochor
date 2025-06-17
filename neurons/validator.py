@@ -26,7 +26,7 @@ import wandb
 from retry import retry
 
 from template.base.validator import BaseValidatorNeuron
-from epochor.model.model_constraints import Competition, EpsilonFunc
+from epochor.model.model_constraints import Competition
 from constants import CompetitionId
 from epochor.utils import competition_utils
 from . import config
