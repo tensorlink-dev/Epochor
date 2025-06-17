@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, AsyncMock
 from epochor import mining
 from epochor.model.model_data import Model, ModelId
 from tests.test_disk_model_store import DummyModel, DummyConfig
-from epochor.constants import CompetitionId
+from constants import CompetitionId
 
 class TestMining(unittest.TestCase):
 

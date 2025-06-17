@@ -10,6 +10,7 @@ import numpy as np
 from typing import Dict, Callable
 from epochor.config import EPOCHOR_CONFIG
 from epochor.utils.logging import reinitialize
+from competitions.epsilon import EpsilonFunc
 
 logger = reinitialize()
 
