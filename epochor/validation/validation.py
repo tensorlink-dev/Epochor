@@ -25,7 +25,7 @@ import numpy as np
 
 from epochor.utils import logging
 import torch
-from epochor.model.model_constraints import EpsilonFunc
+from competitions.epsilon import EpsilonFunc
 from epochor.model.model_data import Model
 from epochor.evaluation.eval_task import EvalTask
 from epochor.config import EPOCHOR_CONFIG
