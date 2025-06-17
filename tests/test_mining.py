@@ -9,6 +9,7 @@ from epochor import mining
 from epochor.model.model_data import Model, ModelId
 from tests.test_disk_model_store import DummyModel, DummyConfig
 from constants import CompetitionId
+import constants
 
 class TestMining(unittest.TestCase):
 
@@ -18,6 +19,8 @@ class TestMining(unittest.TestCase):
         self.model = DummyModel(self.config)
         self.mock_wallet = MagicMock()
         self.mock_wallet.hotkey.ss58_address = "fake_hotkey_address"
+        constants.SUBNET_UID = 1 
+
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir)
@@ -25,14 +28,14 @@ class TestMining(unittest.TestCase):
     def test_save_and_load_local_model(self):
         # Save the model
         model_dir = os.path.join(self.temp_dir, "model_test")
-        mining.save(self.model, model_dir, self.config)
+        mining.save(self.model, model_dir)
 
         # Check that the model files were created
         self.assertTrue(os.path.exists(os.path.join(model_dir, "config.json")))
         self.assertTrue(os.path.exists(os.path.join(model_dir, "model.safetensors")))
 
         # Load the model back
-        loaded_model = mining.load_local_model(model_dir, CompetitionId.UNIVARIATE)
+        loaded_model = mining.load_local_model(model_dir, DummyModel)
 
         # Check if the loaded model is of the correct type and has the same state
         self.assertIsInstance(loaded_model, DummyModel)

@@ -13,8 +13,8 @@ import torch
 from template.base.validator import BaseValidatorNeuron
 
 class ConcreteValidator(Validator):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, config):
+        super().__init__(config)
 
     async def forward(self, synapse: bt.Synapse) -> bt.Synapse:
         pass
@@ -35,12 +35,16 @@ class TestValidator(unittest.TestCase):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
 
+        # Create a mock config
+        mock_config = MagicMock()
+        mock_config.validator_config.return_value = mock_config
+
         # Patch the Validator's __init__ to avoid real bittensor setup
         with patch('template.base.validator.BaseValidatorNeuron.__init__', MagicMock(return_value=None)):
             with patch('neurons.validator.ValidatorState'):
                  with patch('neurons.validator.ModelManager'):
                     with patch('neurons.validator.WeightSetter'):
-                        self.validator = ConcreteValidator()
+                        self.validator = ConcreteValidator(config=mock_config)
         
         # Replace bittensor objects with mocks
         self.validator.wallet = self.mock_wallet
@@ -54,6 +58,7 @@ class TestValidator(unittest.TestCase):
         self.validator.local_store = MagicMock()
         self.validator.state = MagicMock()
         self.validator.state.model_tracker = MagicMock()
+        self.validator.config = mock_config
 
     def tearDown(self):
         self.loop.close()
