@@ -111,6 +111,3 @@ def get_list_of_uids(
             for uid in range(len(metagraph.hotkeys))
             if uid % pass_through_config == self_uid % pass_through_config
         ]
-
-# Load the model from the weights file.
-model = torch.load("distilbert-base-uncased.pt", map_location="cpu")
