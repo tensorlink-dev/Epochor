@@ -25,13 +25,49 @@ from epochor.validation.ema_tracker import EMATracker
 from epochor.model.model_tracker import ModelTracker
 from epochor.model.model_updater import MinerMisconfiguredError
 from epochor.model.model_data import EvalResult
-from competitions.epsilon import EpsilonFunc, should_retry_model
+from competitions.epsilon import EpsilonFunc
 from taoverse.utils import metagraph_utils
 from taoverse.utils.perf_monitor import PerfMonitor
 from constants import CompetitionId
 from epochor.utils import competition_utils
 from epochor.model.storage.disk_model_store import DiskModelStore # Import DiskModelStore
 
+
+def should_retry_model(
+    epsilon_func: EpsilonFunc,
+    current_block: int,
+    eval_history: typing.List[EvalResult],
+) -> bool:
+    """Determines whether the model should be retried based on its eval history.
+
+    Args:
+        epsilon_func (EpsilonFunc):
+            The epsilon function used to determine the score threshold.
+        current_block (int):
+            The current block.
+        eval_history (typing.List[EvalResult]):
+            The model's evaluation history.
+
+    Returns:
+        bool: True if the model should be retried, False otherwise.
+    """
+    if not eval_history:
+        return True
+
+    # Should retry the model if it was last evaluated more than X blocks ago
+    # and if it has a reasonable chance of still being competitive.
+    last_eval_block = eval_history[-1].block
+    decayed_score = epsilon_func.compute_epsilon(current_block, last_eval_block)
+    score_cutoff = decayed_score
+
+    # Check to see if the model ever beat the score cutoff.
+    for eval_result in eval_history:
+        if eval_result.score <= score_cutoff:
+            # It was already competitive, don't retry it.
+            return False
+
+    # It has not been competitive, retry it.
+    return True
 
 
 class ValidatorState:
