@@ -4,7 +4,7 @@ import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from neurons.validator import Validator
 from epochor.validation.validation import ScoreDetails
-from epochor.model.model_data import ModelId, ModelMetadata, EvalResult,
+from epochor.model.model_data import ModelId, ModelMetadata, EvalResult
 from competitions.data import Competition
 from constants import CompetitionId
 from tests.test_disk_model_store import DummyModel, DummyConfig
