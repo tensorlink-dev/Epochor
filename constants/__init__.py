@@ -112,12 +112,5 @@ def get_list_of_uids(
             if uid % pass_through_config == self_uid % pass_through_config
         ]
 
-
-# Create a rate limiter that allows 100 requests per minute.
-rate_limiter = KeyLimiter(
-    requests=100,
-    window=60,
-)
-
 # Load the model from the weights file.
 model = torch.load("distilbert-base-uncased.pt", map_location="cpu")
