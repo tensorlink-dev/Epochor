@@ -1,6 +1,7 @@
 import os
 import hashlib
 import base64
+import torch
 
 def get_hash_of_file(path: str) -> str:
     blocksize = 64 * 1024
@@ -15,6 +16,15 @@ def get_hash_of_file(path: str) -> str:
 
 
 def hash_directory(path: str) -> str:
+    """Computes the hash of a directory's contents."""
+    if isinstance(path, dict):
+        # Handle the case where the input is a state_dict
+        serialized_data = torch.save(path, 'temp_state_dict.pth')
+        with open('temp_state_dict.pth', 'rb') as f:
+            data = f.read()
+        os.remove('temp_state_dict.pth')
+        return base64.b64encode(hashlib.sha256(data).digest()).decode("utf-8")
+
     dir_hash = hashlib.sha256()
 
     # Recursively walk everything under the directory for files.
