@@ -34,7 +34,7 @@ class DiskModelStore(LocalModelStore):
             name=model.id.name,
             commit=model_hash,
             hash=model_hash,
-            competition_id=model.id.competition_id
+            competition_id=model.id.competition_id,
         )
 
         save_directory = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model_id_with_hash)
@@ -58,7 +58,7 @@ class DiskModelStore(LocalModelStore):
         """Retrieves a trained model locally via `load_hf`."""
         model_dir = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model_id)
 
-        # Verify the hash of the directory before loading.
+        # Re-enable the hash check once the hashing logic is consistent.
         # model_hash = hash_directory(model_dir)
         # if model_hash != model_id.hash:
         #     raise ValueError(f"Hash mismatch for {model_id}. Expected {model_id.hash}, but on-disk content has hash {model_hash}.")
