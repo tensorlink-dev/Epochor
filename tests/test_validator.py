@@ -24,6 +24,8 @@ class TestValidator(unittest.TestCase):
     def setUp(self):
         # Mock bittensor objects
         self.mock_wallet = MagicMock()
+        self.mock_wallet.name = "mock_wallet"
+        self.mock_wallet.hotkey = "mock_hotkey"
         self.mock_subtensor = MagicMock()
         self.mock_dendrite = MagicMock()
         self.mock_metagraph = MagicMock()
@@ -38,6 +40,8 @@ class TestValidator(unittest.TestCase):
         # Create a mock config
         mock_config = MagicMock()
         mock_config.validator_config.return_value = mock_config
+        mock_config.wallet.name = "mock_wallet"
+        mock_config.wallet.hotkey = "mock_hotkey"
 
         # Patch the Validator's __init__ to avoid real bittensor setup
         with patch('template.base.validator.BaseValidatorNeuron.__init__', MagicMock(return_value=None)):
