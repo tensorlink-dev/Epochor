@@ -8,7 +8,7 @@ from transformers import PretrainedConfig, PreTrainedModel
 from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.base_metadata_model_store import ModelMetadataStore
 from epochor.model.model_constraints import ModelConstraints
-from epochor.model.data import Model, ModelId, ModelMetadata
+from epochor.model.model_data import Model, ModelId, ModelMetadata
 
 
 # Dummy model and config for testing
