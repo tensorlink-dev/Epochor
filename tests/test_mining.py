@@ -4,7 +4,7 @@ import tempfile
 import shutil
 import os
 import asyncio
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 from epochor import mining
 from epochor.model.model_data import Model, ModelId
 from tests.test_disk_model_store import DummyModel, DummyConfig
@@ -45,7 +45,10 @@ class TestMining(unittest.TestCase):
             0
         )
 
-    def test_push_model(self):
+    @patch('epochor.model.storage.hf_model_store.HfApi.upload_folder', new_callable=AsyncMock)
+    @patch('epochor.model.storage.hf_model_store.HfApi.create_repo', new_callable=AsyncMock)
+    @patch('epochor.model.storage.hf_model_store.snapshot_download')
+    def test_push_model(self, mock_snapshot_download, mock_create_repo, mock_upload_folder):
         async def run_test():
             # Mock the external dependencies
             mock_metadata_store = AsyncMock()
