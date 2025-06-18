@@ -7,7 +7,7 @@ from transformers import PretrainedConfig, PreTrainedModel
 
 from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.base_metadata_model_store import ModelMetadataStore
-from epochor.model.competition.data import ModelConstraints
+from epochor.model.model_constraints import ModelConstraints
 from epochor.model.data import Model, ModelId, ModelMetadata
 
 
