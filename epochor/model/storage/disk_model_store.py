@@ -29,7 +29,7 @@ class DiskModelStore(LocalModelStore):
         """Stores a trained model locally via `save_hf`."""
         # Note: We use the hash of the model as the commit, since we don't have a true "commit" in the local case.
         model_hash = hash_directory(model.model.state_dict())
-        model_id_with_hash = model.id._replace(commit=model_hash, hash=model_hash)
+        model_id_with_hash = model.id.copy(update={"commit": model_hash, "hash": model_hash})
 
         save_directory = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model_id_with_hash)
         os.makedirs(save_directory, exist_ok=True)
