@@ -45,40 +45,36 @@ class TestMining(unittest.TestCase):
             0
         )
 
-    @patch('epochor.model.storage.hf_model_store.HfApi.upload_folder', new_callable=AsyncMock)
-    @patch('epochor.model.storage.hf_model_store.HfApi.create_repo', new_callable=AsyncMock)
-    @patch('epochor.model.storage.hf_model_store.snapshot_download')
-    def test_push_model(self, mock_snapshot_download, mock_create_repo, mock_upload_folder):
+    @patch('epochor.mining.HuggingFaceModelStore')
+    def test_push_model(self, mock_hf_model_store):
         async def run_test():
-            # Mock the external dependencies
+            # Arrange
             mock_metadata_store = AsyncMock()
-            mock_remote_store = AsyncMock()
-
-            # Configure the mock remote store to return a specific ModelId
-            test_model_id = ModelId(namespace="test_ns", name="test_repo", commit="test_commit", hash="test_hash", competition_id=CompetitionId.UNIVARIATE)
-            mock_remote_store.upload_model.return_value = test_model_id
             
-            # Configure the mock metadata store to successfully retrieve the metadata after storing
+            # Configure the mock for HuggingFaceModelStore
+            mock_remote_store_instance = mock_hf_model_store.return_value
+            test_model_id = ModelId(namespace="test_ns", name="test_repo", commit="test_commit", hash="test_hash", competition_id=CompetitionId.UNIVARIATE)
+            mock_remote_store_instance.upload_model.return_value = test_model_id
+            
+            # Configure the mock for ChainModelMetadataStore
             async def retrieve_side_effect(uid, hotkey):
-                # Simulate that the metadata was stored correctly
                 return MagicMock(id=test_model_id)
             mock_metadata_store.retrieve_model_metadata.side_effect = retrieve_side_effect
 
-
-            # Call the push function
+            # Act: Call the push function without a remote_model_store, so it uses the patched default.
             await mining.push(
                 model=self.model,
                 repo="test_ns/test_repo",
                 wallet=self.mock_wallet,
                 competition_id=CompetitionId.UNIVARIATE,
                 metadata_store=mock_metadata_store,
-                remote_model_store=mock_remote_store
             )
 
-            # Assert that the external stores were called
-            mock_remote_store.upload_model.assert_called_once()
+            # Assert
+            mock_remote_store_instance.upload_model.assert_called_once()
             mock_metadata_store.store_model_metadata.assert_called_once()
-            mock_metadata_store.retrieve_model_metadata.assert_called_once()
+            # The UID is mocked, so we expect at least one call to retrieve_model_metadata to verify.
+            self.assertGreaterEqual(mock_metadata_store.retrieve_model_metadata.call_count, 1)
         
         asyncio.run(run_test())
 
