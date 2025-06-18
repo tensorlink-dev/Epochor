@@ -54,7 +54,7 @@ class TestMining(unittest.TestCase):
             # Configure the mock for HuggingFaceModelStore
             mock_remote_store_instance = mock_hf_model_store.return_value
             test_model_id = ModelId(namespace="test_ns", name="test_repo", commit="test_commit", hash="test_hash", competition_id=CompetitionId.UNIVARIATE)
-            mock_remote_store_instance.upload_model.return_value = test_model_id
+            mock_remote_store_instance.upload_model = AsyncMock(return_value=test_model_id)
             
             # Configure the mock for ChainModelMetadataStore
             async def retrieve_side_effect(uid, hotkey):

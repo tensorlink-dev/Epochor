@@ -13,10 +13,12 @@ from epochor.model.model_constraints import ModelConstraints
 class DummyConfig(PretrainedConfig):
     model_type = "dummy"
 
-    def __init__(self, hidden_size=1, input_dim=1, **kwargs):
+    def __init__(self, hidden_size=1, input_dim=1, context_length=1, prediction_length=1, **kwargs):
         super().__init__(**kwargs)
         self.hidden_size = hidden_size
         self.input_dim = input_dim
+        self.context_length = context_length
+        self.prediction_length = prediction_length
 
 class DummyModel(PreTrainedModel):
     config_class = DummyConfig

@@ -48,7 +48,8 @@ class TestValidator(unittest.TestCase):
             with patch('neurons.validator.ValidatorState'):
                  with patch('neurons.validator.ModelManager'):
                     with patch('neurons.validator.WeightSetter'):
-                        self.validator = ConcreteValidator(config=mock_config)
+                        with patch('bittensor.wallet', return_value=self.mock_wallet):
+                            self.validator = ConcreteValidator(config=mock_config)
         
         # Replace bittensor objects with mocks
         self.validator.wallet = self.mock_wallet
