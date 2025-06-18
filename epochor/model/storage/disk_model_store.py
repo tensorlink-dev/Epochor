@@ -3,6 +3,7 @@ import shutil
 import traceback
 from pathlib import Path
 from typing import Dict, Optional
+import tempfile
 
 from temporal.utils.hf_accessors import save_hf, load_hf
 from epochor.utils import logging
@@ -27,27 +28,22 @@ class DiskModelStore(LocalModelStore):
 
     def store_model(self, hotkey: str, model: Model) -> ModelId:
         """Stores a trained model locally via `save_hf`."""
-        # Note: We use the hash of the model as the commit, since we don't have a true "commit" in the local case.
-        model_hash = hash_directory(model.model.state_dict())
-        model_id_with_hash = ModelId(
-            namespace=model.id.namespace,
-            name=model.id.name,
-            commit=model_hash,
-            hash=model_hash,
-            competition_id=model.id.competition_id,
-        )
+        # In the local case, the commit is just a placeholder.
 
-        save_directory = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model_id_with_hash)
-        os.makedirs(save_directory, exist_ok=True)
+        final_save_directory = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model_id_with_commit)
+        if os.path.exists(final_save_directory):
+            shutil.rmtree(final_save_directory)
+        os.makedirs(final_save_directory, exist_ok=True)
 
+        # Save the model to the permanent location.
         save_hf(
             model=model.model,
             config=model.model.config,
-            save_directory=save_directory,
+            save_directory=final_save_directory,
             safe=self.safe_format == "safetensors",
         )
         
-        return model_id_with_hash
+        return model.id
 
     def retrieve_model(
         self,
@@ -57,11 +53,6 @@ class DiskModelStore(LocalModelStore):
     ) -> Model:
         """Retrieves a trained model locally via `load_hf`."""
         model_dir = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model_id)
-
-        # Re-enable the hash check once the hashing logic is consistent.
-        # model_hash = hash_directory(model_dir)
-        # if model_hash != model_id.hash:
-        #     raise ValueError(f"Hash mismatch for {model_id}. Expected {model_id.hash}, but on-disk content has hash {model_hash}.")
 
         pt_model = load_hf(
             model_name_or_path=model_dir,
@@ -77,7 +68,7 @@ class DiskModelStore(LocalModelStore):
         )
 
     def delete_unreferenced_models(
-        self, valid_models_by_hotkey: Dict[str, ModelId], grace_period_seconds: int
+        self, valid_models_by_hotkey: Dict[str, set[ModelId]], grace_period_seconds: int
     ):
         """Check across all of local storage and delete unreferenced models out of grace period."""
         valid_paths = {
@@ -97,17 +88,20 @@ class DiskModelStore(LocalModelStore):
                         logging.trace(f"Removed unreferenced hotkey directory: {hotkey}")
                     continue
 
-                # clean up stale commits under this hotkey
-                for model_ns_name in hotkey_dir.iterdir():
-                    if not model_ns_name.is_dir():
+                models_dir = os.path.join(hotkey_dir, "models")
+                if not os.path.exists(models_dir):
+                    continue
+
+                for model_ns_name in os.listdir(models_dir):
+                    model_dir = os.path.join(models_dir, model_ns_name)
+                    snapshots_dir = os.path.join(model_dir, "snapshots")
+                    if not os.path.exists(snapshots_dir):
                         continue
-                    for snapshot in model_ns_name.iterdir():
-                        if not snapshot.is_dir():
-                            continue
-                        for commit_dir in snapshot.iterdir():
-                            path = str(commit_dir)
-                            if path not in valid_paths:
-                                if utils.remove_dir_out_of_grace(path, grace_period_seconds):
-                                    logging.trace(f"Removed unreferenced model at: {path}")
+
+                    for commit_dir_name in os.listdir(snapshots_dir):
+                        commit_path = os.path.join(snapshots_dir, commit_dir_name)
+                        if commit_path not in valid_paths:
+                            if utils.remove_dir_out_of_grace(commit_path, grace_period_seconds):
+                                logging.trace(f"Removed unreferenced model at: {commit_path}")
             except Exception:
                 logging.warning(traceback.format_exc())
