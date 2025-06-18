@@ -1,131 +1,111 @@
 
-import unittest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
+import pytest
 import bittensor as bt
+import torch
 from neurons.validator import Validator
 from epochor.validation.validation import ScoreDetails
-from epochor.model.model_data import ModelId, ModelMetadata, EvalResult
+from epochor.model.model_data import ModelId, ModelMetadata
 from epochor.model.model_constraints import Competition
 from constants import CompetitionId
-from tests.test_disk_model_store import DummyModel, DummyConfig
-import torch
-from template.base.validator import BaseValidatorNeuron
+from tests.helpers import DummyModel, DummyConfig
+
+# Mark all tests in this file as asyncio
+pytestmark = pytest.mark.asyncio
 
 class ConcreteValidator(Validator):
+    """A concrete implementation of the abstract Validator for testing."""
     def __init__(self, config):
         super().__init__(config)
 
     async def forward(self, synapse: bt.Synapse) -> bt.Synapse:
         pass
 
-class TestValidator(unittest.TestCase):
+@pytest.fixture
+def validator(mock_wallet):
+    """Provides a mocked Validator instance for testing."""
+    mock_config = MagicMock()
+    mock_config.validator_config.return_value = mock_config
+    mock_config.wallet.name = "mock_wallet"
+    mock_config.wallet.hotkey = "mock_hotkey"
 
-    def setUp(self):
-        # Mock bittensor objects
-        self.mock_wallet = MagicMock()
-        self.mock_wallet.name = "mock_wallet"
-        self.mock_wallet.hotkey = "mock_hotkey"
-        self.mock_subtensor = MagicMock()
-        self.mock_dendrite = MagicMock()
-        self.mock_metagraph = MagicMock()
-        self.mock_metagraph.hotkeys = ["hotkey0", "hotkey1", "hotkey2"]
-        self.mock_metagraph.uids = [0, 1, 2]
-        self.mock_metagraph.n = 3
+    with patch('template.base.validator.BaseValidatorNeuron.__init__', MagicMock(return_value=None)):
+        with patch('neurons.validator.ValidatorState'):
+            with patch('neurons.validator.ModelManager'):
+                with patch('neurons.validator.WeightSetter'):
+                    validator = ConcreteValidator(config=mock_config)
+    
+    validator.wallet = mock_wallet
+    validator.subtensor = MagicMock()
+    validator.dendrite = MagicMock()
+    validator.metagraph = MagicMock()
+    validator.metagraph.hotkeys = ["hotkey0", "hotkey1", "hotkey2"]
+    validator.metagraph.uids = [0, 1, 2]
+    validator.metagraph.n = 3
+    
+    validator.metadata_store = AsyncMock()
+    validator.remote_store = AsyncMock()
+    validator.local_store = MagicMock()
+    validator.state = MagicMock()
+    validator.state.model_tracker = MagicMock()
+    validator.config = mock_config
+    
+    return validator
 
-        # Create a new, isolated event loop for each test
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
+async def test_run_step_scoring_and_weight_update(validator, dummy_model):
+    """Tests the main validator step, including scoring and weight updates."""
+    # Setup a fake competition
+    competition = Competition(
+        id=CompetitionId.UNIVARIATE,
+        eval_tasks=[],
+        constraints=MagicMock()
+    )
+    validator.global_step = 0
+    
+    # Mock the competition schedule to return our fake competition
+    with patch('epochor.utils.competition_utils.get_competition_schedule_for_block', return_value=[competition]):
+        # Set some UIDs to evaluate
+        uids_to_eval = {0, 1}
+        validator.state.uids_to_eval = {competition.id: uids_to_eval}
+        validator.state.pending_uids_to_eval = {competition.id: set()}
 
-        # Create a mock config
-        mock_config = MagicMock()
-        mock_config.validator_config.return_value = mock_config
-        mock_config.wallet.name = "mock_wallet"
-        mock_config.wallet.hotkey = "mock_hotkey"
+        # Mock model metadata for the UIDs
+        metadata0 = ModelMetadata(id=ModelId(namespace="ns", name="n0", commit="c0", hash="h0", competition_id=competition.id), block=100)
+        metadata1 = ModelMetadata(id=ModelId(namespace="ns", name="n1", commit="c1", hash="h1", competition_id=competition.id), block=101)
+        validator.state.model_tracker.get_model_metadata_for_miner_hotkey.side_effect = lambda hotkey: metadata0 if hotkey == "hotkey0" else metadata1
 
-        # Patch the Validator's __init__ to avoid real bittensor setup
-        with patch('template.base.validator.BaseValidatorNeuron.__init__', MagicMock(return_value=None)):
-            with patch('neurons.validator.ValidatorState'):
-                 with patch('neurons.validator.ModelManager'):
-                    with patch('neurons.validator.WeightSetter'):
-                        self.validator = ConcreteValidator(config=mock_config)
-        
-        # Replace bittensor objects with mocks
-        self.validator.wallet = self.mock_wallet
-        self.validator.subtensor = self.mock_subtensor
-        self.validator.dendrite = self.mock_dendrite
-        self.validator.metagraph = self.mock_metagraph
-        
-        # Mock stores and tracker
-        self.validator.metadata_store = AsyncMock()
-        self.validator.remote_store = AsyncMock()
-        self.validator.local_store = MagicMock()
-        self.validator.state = MagicMock()
-        self.validator.state.model_tracker = MagicMock()
-        self.validator.config = mock_config
+        # Mock the local store to return models
+        model0 = dummy_model
+        model1 = DummyModel(DummyConfig()) # A different instance
+        validator.local_store.retrieve_model.side_effect = lambda hotkey, model_id, constraints: model0 if hotkey == "hotkey0" else model1
 
-    def tearDown(self):
-        self.loop.close()
+        # Mock the scoring function to return predictable scores
+        def mock_score_func(model, *args, **kwargs):
+            if model == model0:
+                return 0.1, {"task1": ScoreDetails(raw_score=0.1)} # Lower score is better
+            else:
+                return 0.2, {"task1": ScoreDetails(raw_score=0.2)}
 
-    def test_run_step_scoring_and_weight_update(self):
-        async def run_test():
-            # Setup a fake competition
-            competition = Competition(
-                id=CompetitionId.UNIVARIATE,
-                eval_tasks=[],
-                constraints=MagicMock()
-            )
-            self.validator.global_step = 0
+        with patch('epochor.validation.validation.score_time_series_model', side_effect=mock_score_func):
+            # Mock other necessary methods
+            validator._get_current_block = MagicMock(return_value=200)
+            validator._get_seed = MagicMock(return_value=123)
+            validator.state.ema_tracker = MagicMock()
+            validator.state.ema_tracker.get_subnet_weights.return_value = torch.zeros(3)
+
+            # Run the step
+            await validator.run_step()
             
-            # Mock the competition schedule to return our fake competition
-            with patch('epochor.utils.competition_utils.get_competition_schedule_for_block', return_value=[competition]):
-                # Set some UIDs to evaluate
-                uids_to_eval = {0, 1}
-                self.validator.state.uids_to_eval = {competition.id: uids_to_eval}
-                self.validator.state.pending_uids_to_eval = {competition.id: set()}
-
-                # Mock model metadata for the UIDs
-                metadata0 = ModelMetadata(id=ModelId(namespace="ns", name="n0", commit="c0", hash="h0", competition_id=competition.id), block=100)
-                metadata1 = ModelMetadata(id=ModelId(namespace="ns", name="n1", commit="c1", hash="h1", competition_id=competition.id), block=101)
-                self.validator.state.model_tracker.get_model_metadata_for_miner_hotkey.side_effect = lambda hotkey: metadata0 if hotkey == "hotkey0" else metadata1
-
-                # Mock the local store to return models
-                model0 = DummyModel(DummyConfig())
-                model1 = DummyModel(DummyConfig())
-                self.validator.local_store.retrieve_model.side_effect = lambda hotkey, model_id: model0 if hotkey == "hotkey0" else model1
-
-                # Mock the scoring function to return predictable scores
-                def mock_score_func(model, *args, **kwargs):
-                    if model == model0:
-                        return 0.1, {"task1": ScoreDetails(raw_score=0.1)} # Lower score is better
-                    else:
-                        return 0.2, {"task1": ScoreDetails(raw_score=0.2)}
-
-                with patch('epochor.validation.validation.score_time_series_model', side_effect=mock_score_func):
-                    # Mock other necessary methods
-                    self.validator._get_current_block = MagicMock(return_value=200)
-                    self.validator._get_seed = MagicMock(return_value=123)
-                    self.validator.state.ema_tracker = MagicMock()
-                    self.validator.state.ema_tracker.get_subnet_weights.return_value = torch.zeros(3)
-
-
-                    # Run the step
-                    await self.validator.run_step()
-                    
-                    # Assertions
-                    # Check that the model tracker was updated with evaluation results
-                    self.assertEqual(self.validator.state.model_tracker.on_model_evaluated.call_count, 2)
-                    
-                    # Check that EMA scores were updated
-                    self.validator.state.update_ema_scores.assert_called_once()
-                    
-                    # Check that competition weights were recorded
-                    self.validator.state.ema_tracker.record_competition_weights.assert_called_once()
-                    
-                    # Check that uids to eval were updated
-                    self.validator.state.update_uids_to_eval.assert_called_once()
-
-        self.loop.run_until_complete(run_test())
-
-if __name__ == '__main__':
-    unittest.main()
+            # Assertions
+            # Check that the model tracker was updated with evaluation results
+            assert validator.state.model_tracker.on_model_evaluated.call_count == 2
+            
+            # Check that EMA scores were updated
+            validator.state.update_ema_scores.assert_called_once()
+            
+            # Check that competition weights were recorded
+            validator.state.ema_tracker.record_competition_weights.assert_called_once()
+            
+            # Check that uids to eval were updated
+            validator.state.update_uids_to_eval.assert_called_once()

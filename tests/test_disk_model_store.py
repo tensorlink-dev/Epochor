@@ -1,111 +1,76 @@
 
-import unittest
-import tempfile
-import shutil
 import os
 import torch
-from transformers import PretrainedConfig, PreTrainedModel
+import pytest
 from epochor.model.storage.disk_model_store import DiskModelStore
 from epochor.model.model_data import Model, ModelId
 from epochor.model.model_constraints import ModelConstraints
+from tests.helpers import DummyModel, DummyConfig
 
-# Dummy model and config for testing
-class DummyConfig(PretrainedConfig):
-    model_type = "dummy"
+def test_store_and_retrieve_model(temp_dir, dummy_model):
+    """Tests that a model can be stored and then retrieved."""
+    store = DiskModelStore(base_dir=temp_dir)
+    hotkey = "test_hotkey"
+    model_id = ModelId(namespace="test_namespace", name="test_name", commit="test_commit", hash="test_hash", competition_id=1)
 
-    def __init__(self, hidden_size=1, input_dim=1, **kwargs):
-        super().__init__(**kwargs)
-        self.hidden_size = hidden_size
-        self.input_dim = input_dim
+    # Store the model
+    stored_model_id = store.store_model(hotkey, Model(id=model_id, model=dummy_model))
 
-class DummyModel(PreTrainedModel):
-    config_class = DummyConfig
+    # Check if the model is stored
+    model_dir = store.get_path(hotkey)
+    assert os.path.exists(model_dir)
 
-    def __init__(self, config):
-        super().__init__(config)
-        self.linear = torch.nn.Linear(config.hidden_size, 1)
+    # Retrieve the model
+    retrieved_model = store.retrieve_model(
+        hotkey,
+        stored_model_id,
+        model_constraints=ModelConstraints(model_cls=DummyModel, config_cls=DummyConfig)
+    )
 
-    def forward(self, x):
-        return self.linear(x)
+    # Check if the retrieved model is the same as the original model
+    assert retrieved_model.id == stored_model_id
+    assert torch.equal(list(retrieved_model.model.parameters())[0], list(dummy_model.parameters())[0])
 
-class TestDiskModelStore(unittest.TestCase):
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
+def test_retrieve_nonexistent_model(temp_dir):
+    """Tests that retrieving a non-existent model raises an exception."""
+    store = DiskModelStore(base_dir=temp_dir)
+    hotkey = "test_hotkey"
+    model_id = ModelId(namespace="test_namespace", name="test_name", commit="test_commit", hash="nonexistent_hash", competition_id=1)
 
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir)
-
-    def _create_dummy_model_and_config(self):
-        config = DummyConfig()
-        model = DummyModel(config)
-        return model, config
-
-    def test_store_and_retrieve_model(self):
-        store = DiskModelStore(base_dir=self.temp_dir)
-        hotkey = "test_hotkey"
-        model, config = self._create_dummy_model_and_config()
-        model_id = ModelId(namespace="test_namespace", name="test_name", commit="test_commit", hash="test_hash", competition_id=1)
-
-        # Store the model
-        stored_model_id = store.store_model(hotkey, Model(id=model_id, model=model))
-
-        # Check if the model is stored
-        model_dir = store.get_path(hotkey)
-        self.assertTrue(os.path.exists(model_dir))
-
-        # Retrieve the model
-        retrieved_model = store.retrieve_model(
+    with pytest.raises(Exception):
+        store.retrieve_model(
             hotkey,
-            stored_model_id,
+            model_id,
             model_constraints=ModelConstraints(model_cls=DummyModel, config_cls=DummyConfig)
         )
 
-        # Check if the retrieved model is the same as the original model
-        self.assertEqual(retrieved_model.id, stored_model_id)
-        self.assertTrue(torch.equal(list(retrieved_model.model.parameters())[0], list(model.parameters())[0]))
+def test_delete_unreferenced_models(temp_dir, dummy_model):
+    """Tests that unreferenced models are deleted correctly."""
+    store = DiskModelStore(base_dir=temp_dir)
+    hotkey = "test_hotkey"
 
-    def test_retrieve_nonexistent_model(self):
-        store = DiskModelStore(base_dir=self.temp_dir)
-        hotkey = "test_hotkey"
-        model_id = ModelId(namespace="test_namespace", name="test_name", commit="test_commit", hash="nonexistent_hash", competition_id=1)
+    # Store two models
+    model_id_1 = ModelId(namespace="test_namespace", name="test_name_1", commit="test_commit_1", hash="test_hash_1", competition_id=1)
+    stored_model_id_1 = store.store_model(hotkey, Model(id=model_id_1, model=dummy_model))
 
-        with self.assertRaises(Exception):
-            store.retrieve_model(
-                hotkey,
-                model_id,
-                model_constraints=ModelConstraints(model_cls=DummyModel, config_cls=DummyConfig)
-            )
+    model_id_2 = ModelId(namespace="test_namespace", name="test_name_2", commit="test_commit_2", hash="test_hash_2", competition_id=1)
+    stored_model_id_2 = store.store_model(hotkey, Model(id=model_id_2, model=dummy_model))
 
-    def test_delete_unreferenced_models(self):
-        store = DiskModelStore(base_dir=self.temp_dir)
-        hotkey = "test_hotkey"
-        model, config = self._create_dummy_model_and_config()
+    # Call delete_unreferenced_models with only the first model as valid
+    store.delete_unreferenced_models({hotkey: {stored_model_id_1}}, grace_period_seconds=0)
 
-        # Store two models
-        model_id_1 = ModelId(namespace="test_namespace", name="test_name_1", commit="test_commit_1", hash="test_hash_1", competition_id=1)
-        stored_model_id_1 = store.store_model(hotkey, Model(id=model_id_1, model=model))
+    # Check that the first model is not deleted
+    retrieved_model_1 = store.retrieve_model(
+        hotkey,
+        stored_model_id_1,
+        model_constraints=ModelConstraints(model_cls=DummyModel, config_cls=DummyConfig)
+    )
+    assert retrieved_model_1 is not None
 
-        model_id_2 = ModelId(namespace="test_namespace", name="test_name_2", commit="test_commit_2", hash="test_hash_2", competition_id=1)
-        stored_model_id_2 = store.store_model(hotkey, Model(id=model_id_2, model=model))
-
-        # Call delete_unreferenced_models with only the first model as valid
-        store.delete_unreferenced_models({hotkey: {stored_model_id_1}}, grace_period_seconds=0)
-
-        # Check that the first model is not deleted
-        retrieved_model_1 = store.retrieve_model(
+    # Check that the second model is deleted
+    with pytest.raises(Exception):
+        store.retrieve_model(
             hotkey,
-            stored_model_id_1,
+            stored_model_id_2,
             model_constraints=ModelConstraints(model_cls=DummyModel, config_cls=DummyConfig)
         )
-        self.assertIsNotNone(retrieved_model_1)
-
-        # Check that the second model is deleted
-        with self.assertRaises(Exception):
-            store.retrieve_model(
-                hotkey,
-                stored_model_id_2,
-                model_constraints=ModelConstraints(model_cls=DummyModel, config_cls=DummyConfig)
-            )
-
-if __name__ == "__main__":
-    unittest.main()
