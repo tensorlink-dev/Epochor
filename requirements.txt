@@ -8,3 +8,4 @@ setuptools>=68
 taoverse
 #temporal 
 properscoring
+pytest-socket
