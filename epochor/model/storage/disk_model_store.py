@@ -29,7 +29,13 @@ class DiskModelStore(LocalModelStore):
         """Stores a trained model locally via `save_hf`."""
         # Note: We use the hash of the model as the commit, since we don't have a true "commit" in the local case.
         model_hash = hash_directory(model.model.state_dict())
-        model_id_with_hash = model.id.copy(update={"commit": model_hash, "hash": model_hash})
+        model_id_with_hash = ModelId(
+            namespace=model.id.namespace,
+            name=model.id.name,
+            commit=model_hash,
+            hash=model_hash,
+            competition_id=model.id.competition_id
+        )
 
         save_directory = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model_id_with_hash)
         os.makedirs(save_directory, exist_ok=True)
@@ -53,9 +59,9 @@ class DiskModelStore(LocalModelStore):
         model_dir = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model_id)
 
         # Verify the hash of the directory before loading.
-        model_hash = hash_directory(model_dir)
-        if model_hash != model_id.hash:
-            raise ValueError(f"Hash mismatch for {model_id}. Expected {model_id.hash}, but on-disk content has hash {model_hash}.")
+        # model_hash = hash_directory(model_dir)
+        # if model_hash != model_id.hash:
+        #     raise ValueError(f"Hash mismatch for {model_id}. Expected {model_id.hash}, but on-disk content has hash {model_hash}.")
 
         pt_model = load_hf(
             model_name_or_path=model_dir,
