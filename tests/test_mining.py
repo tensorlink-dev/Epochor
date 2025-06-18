@@ -8,15 +8,27 @@ from epochor.model.model_data import ModelId
 from tests.helpers import DummyModel, FakeModelMetadataStore
 from constants import CompetitionId
 import constants
+from temporal.configs.transformer_config import TransformerTimeSeriesConfig
+from epochor.model.model_constraints import MODEL_CONSTRAINTS_BY_COMPETITION_ID
 
 # Mark all tests in this file as asyncio
 pytestmark = pytest.mark.asyncio
 
-def test_save_and_load_local_model(temp_dir, dummy_model):
+@pytest.fixture
+def dummy_model_with_config():
+    """Returns a DummyModel with a config that has the required attributes."""
+    config = TransformerTimeSeriesConfig(
+        context_length=10,
+        prediction_length=5,
+        # Add any other required config fields here.
+    )
+    return DummyModel(config=config)
+
+def test_save_and_load_local_model(temp_dir, dummy_model_with_config):
     """Tests that a model can be saved and loaded locally."""
     # Save the model
     model_dir = os.path.join(temp_dir, "model_test")
-    mining.save(dummy_model, model_dir)
+    mining.save(dummy_model_with_config, model_dir)
 
     # Check that the model files were created
     assert os.path.exists(os.path.join(model_dir, "config.json"))
@@ -27,9 +39,9 @@ def test_save_and_load_local_model(temp_dir, dummy_model):
 
     # Check if the loaded model is of the correct type and has the same state
     assert isinstance(loaded_model, DummyModel)
-    assert dummy_model.state_dict()['linear.weight'].ne(loaded_model.state_dict()['linear.weight']).sum() == 0
+    assert dummy_model_with_config.state_dict()['linear.weight'].ne(loaded_model.state_dict()['linear.weight']).sum() == 0
 
-async def test_push_model(dummy_model, mock_wallet):
+async def test_push_model(dummy_model_with_config, mock_wallet):
     """Tests the model push process using a fake metadata store."""
     # Use a mock for the remote store and the concrete fake for the metadata store.
     mock_remote_store = AsyncMock()
@@ -42,7 +54,7 @@ async def test_push_model(dummy_model, mock_wallet):
     
     # Call the push function
     await mining.push(
-        model=dummy_model,
+        model=dummy_model_with_config,
         repo="test_ns/test_repo",
         wallet=mock_wallet,
         competition_id=CompetitionId.UNIVARIATE,
