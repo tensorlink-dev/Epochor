@@ -30,7 +30,7 @@ class DiskModelStore(LocalModelStore):
         """Stores a trained model locally via `save_hf`."""
         # In the local case, the commit is just a placeholder.
 
-        final_save_directory = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model_id_with_commit)
+        final_save_directory = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model.id)
         if os.path.exists(final_save_directory):
             shutil.rmtree(final_save_directory)
         os.makedirs(final_save_directory, exist_ok=True)
