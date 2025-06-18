@@ -39,7 +39,7 @@ class DiskModelStore(LocalModelStore):
             safe=self.safe_format == "safetensors",
         )
         
-        return model_id_with_hash
+        return model.id
 
     def retrieve_model(
         self,
