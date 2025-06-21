@@ -88,7 +88,7 @@ Validators are responsible for maintaining the integrity of the network.
 **Responsibilities:**
 *   Stay synchronized with the Bittensor network.
 *   Generate evaluation tasks for miners.
-*   Query miners and evaluate their submissions.
+*   Pull miner models and evaluated them on the evaluation tasks.
 *   Track miner performance using an EMA.
 *   Allocate rewards and set weights on the blockchain.
 *   Log operations and metrics to Weights & Biases (WandB).
@@ -110,7 +110,7 @@ Miners are the core contributors to the network.
 *   Develop and train time-series forecasting models.
 *   Push models to Hugging Face.
 *   Serve models via a Bittensor Axon.
-*   Respond to validator queries with predictions.
+*   Update models or push new models to stay competitive.
 
 **Running a Miner:**
 ```bash
