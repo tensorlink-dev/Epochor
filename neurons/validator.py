@@ -198,20 +198,22 @@ class Validator(BaseValidatorNeuron):
                         dataset_id=eval_task.dataset_id,
                         dataset_kwargs=eval_task.dataset_kwargs,
                         seed=seed,
-                        sequence_length=competition.constraints.sequence_length,
+                       # sequence_length=competition.constraints.sequence_length,
                     )
                     batches = list(data_loader)
                     if batches:
                         random.Random(seed).shuffle(batches)
                         eval_tasks.append(eval_task)
                         data_loaders.append(data_loader)
-                        samples.append(batches[: constants.MAX_BATCHES_PER_DATASET])
+                        samples.append(batches)
                 except Exception as e:
                     logging.error(f"Error loading data for task {eval_task.name}: {e}")
         
         if not samples:
             logging.warning(f"No evaluation data loaded for competition {competition.id}. Skipping step.")
             return
+
+        flat_samples = [batch for task_batches in samples for batch in task_batches]
 
         logging.debug(f"Competition {competition.id} | Computing scores on {uids}")
         kwargs = competition.constraints.kwargs.copy()
@@ -237,7 +239,7 @@ class Validator(BaseValidatorNeuron):
                     with compute_loss_perf.sample():
                         score, score_details = utils.run_in_subprocess(
                             functools.partial(
-                                score_time_series_model, model_i, BaseEvaluator(), samples, self.config.device, seed
+                                score_time_series_model, model_i, BaseEvaluator(),  flat_samples, self.config.device, seed
                             ),
                             ttl=550, mode="spawn"
                         )

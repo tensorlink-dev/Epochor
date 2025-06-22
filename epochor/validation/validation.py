@@ -29,7 +29,7 @@ from competitions.epsilon import EpsilonFunc
 from epochor.model.model_data import Model
 from epochor.evaluation.eval_task import EvalTask
 from epochor.config import EPOCHOR_CONFIG
-from epochor.evaluation.evaluation import CRPSEvaluator
+from epochor.evaluation.evaluation import BaseEvaluator
 from epochor.validation.statistics import (
     compute_overall_win_rate,
     compute_ci_bounds,
@@ -101,50 +101,42 @@ def compute_scores(
         "raw_composite_score_dict": raw_composite_score_dict,
     }
    
-
-
 def score_time_series_model(
-    model: torch.nn.Module,
-    series: typing.Union[np.ndarray, torch.Tensor],
-    evaluator: CRPSEvaluator,
+    model: Any,
+    samples: list,  # Flat list of batch dicts
+    evaluator: BaseEvaluator,
     device: str,
-    task: EvalTask,
-    score_details: typing.Dict[str, ScoreDetails],
-) -> float:
-    """
-    Runs a time-series model on the given input and returns its loss.
-
-    Args:
-        model (torch.nn.Module): The time-series model.
-        series (np.ndarray or torch.Tensor): The input time-series batch.
-        evaluator (CRPSEvaluator): An instance that knows how to compute loss.
-        device (str): Device identifier.
-        task (EvalTask): The evaluation task.
-        score_details (typing.Dict[str, ScoreDetails]): A dictionary to store the score details.
-
-
-    Returns:
-        float: The computed loss.
-    """
+    task_or_seed: typing.Any,  # Task name or seed for logging
+) -> Tuple[float, Dict[str, ScoreDetails]]:
     model.to(device)
     model.eval()
 
-    if not isinstance(series, torch.Tensor):
-        series_tensor = torch.tensor(series, dtype=torch.float32, device=device)
-    else:
-        series_tensor = series.to(device)
+    all_losses = []
+    score_details = {}
 
-    with torch.inference_mode():
-        preds = model(series_tensor) # TODO add generate_autoregressive()
-        loss = evaluator.evaluate(series_tensor.cpu().numpy(), preds.cpu().numpy())
-        score_details[task.name] = ScoreDetails(
-                raw_score= loss,
-                norm_score=None,
-                weighted_norm_score=None,
-                num_samples=len(series),
-            )
+    for i, batch in enumerate(samples):
+        inputs = batch["inputs_padded"].to(device)
+        targets = batch["targets_padded"].to(device)
+        forecast_len = targets.shape[1]
 
-    return loss.mean(), score_details 
+        with torch.inference_mode():
+            preds = model.generate_autoregressive(inputs, forecast_len=forecast_len)
+            crps = evaluator.evaluate(targets.cpu().numpy(), preds.cpu().numpy())  # [B] or [B, T]
+            all_losses.append(crps)  # Store full loss array for each batch
+
+    # Correct: flatten and average
+    all_losses_flat = np.concatenate(all_losses) if all_losses and isinstance(all_losses[0], np.ndarray) else np.array(all_losses)
+    mean_score = float(np.mean(all_losses_flat))
+
+    score_details["flat_evaluation"] = ScoreDetails(
+        raw_score=all_losses_flat,
+        norm_score=None,
+        weighted_norm_score=None,
+        num_samples=len(all_losses_flat),
+    )
+
+    return mean_score, score_details
+
 
 def compute_competitive_uids(
     uid_to_score: typing.Dict[int, float],
