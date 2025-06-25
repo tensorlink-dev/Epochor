@@ -17,6 +17,7 @@
 # DEALINGS IN THE SOFTWARE.
 
 # Tools for performing validation over models.
+from typing import Any, Dict, List, Tuple
 
 import dataclasses
 import math
@@ -36,6 +37,7 @@ from epochor.validation.statistics import (
     compute_aggregate_gap,
     normalize_gap_scores,
 )
+from epochor.evaluation.evaluation import EVALUATION_BY_COMPETITION 
 
 
 
@@ -100,32 +102,46 @@ def compute_scores(
         "sep_score_dict": sep_score_dict,
         "raw_composite_score_dict": raw_composite_score_dict,
     }
-   
+
 def score_time_series_model(
     model: Any,
-    samples: list,  # Flat list of batch dicts
-    evaluator: BaseEvaluator,
+    samples: List[List[Dict[str, Any]]],  # List of batches per task
+    eval_tasks: List[Any],  # List of EvalTask objects
     device: str,
-    task_or_seed: typing.Any,  # Task name or seed for logging
-) -> Tuple[float, Dict[str, ScoreDetails]]:
+    task_or_seed: Any,
+) -> Tuple[float, Dict[str, "ScoreDetails"]]:  # Assuming ScoreDetails is defined elsewhere
     model.to(device)
     model.eval()
 
     all_losses = []
     score_details = {}
 
-    for i, batch in enumerate(samples):
-        inputs = batch["inputs_padded"].to(device)
-        targets = batch["targets_padded"].to(device)
-        forecast_len = targets.shape[1]
+    # Correctly unpack both eval_task and corresponding task_batches
+    for eval_task, task_batches in zip(eval_tasks, samples):
+        evaluator = EVALUATION_BY_COMPETITION[eval_task.method_id]
 
-        with torch.inference_mode():
-            preds = model.generate_autoregressive(inputs, forecast_len=forecast_len)
-            crps = evaluator.evaluate(targets.cpu().numpy(), preds.cpu().numpy())  # [B] or [B, T]
-            all_losses.append(crps)  # Store full loss array for each batch
+        for batch in task_batches:  # Not enumerate here, unless you use `i`
+            inputs = batch["inputs_padded"].to(device)
+            targets = batch["targets_padded"].to(device)
+            forecast_len = batch['actual_target_lengths'][0]
+            targets = targets[:forecast_len]
 
-    # Correct: flatten and average
-    all_losses_flat = np.concatenate(all_losses) if all_losses and isinstance(all_losses[0], np.ndarray) else np.array(all_losses)
+            with torch.inference_mode():
+                preds = model.generate(
+                    input_ids=batch["inputs_padded"].unsqueeze(-1),
+                    prediction_length=forecast_len,
+                    attention_mask=batch["attention_mask"],
+                    decoder_start_token_id=0,
+                )
+                losses = evaluator.evaluate(targets.cpu().numpy(), preds.cpu().numpy())  # [B] or [B, T]
+                all_losses.append(losses)
+
+    # Flatten and compute mean
+    all_losses_flat = (
+        np.concatenate(all_losses)
+        if all_losses and isinstance(all_losses[0], np.ndarray)
+        else np.array(all_losses)
+    )
     mean_score = float(np.mean(all_losses_flat))
 
     score_details["flat_evaluation"] = ScoreDetails(

@@ -45,11 +45,11 @@ import constants
 
 # Epochor Imports
 from epochor.datasets.dataloaders import DatasetLoaderFactory
-from epochor.evaluation.evaluation import BaseEvaluator
 from epochor.model.model_data import EvalResult
 from epochor import utils
 from epochor.model import model_utils
 from epochor.validation.validation import  score_time_series_model, ScoreDetails, compute_scores
+from torch.utils.data import Dataset, DataLoader
 
 
 @dataclasses.dataclass
@@ -136,7 +136,7 @@ class Validator(BaseValidatorNeuron):
 
         # Initial weights from loaded state
         competition_schedule = get_competition_schedule_for_block(
-            self._get_current_block(), constants.COMPETITION_SCHEDULE_BY_BLOCK
+            self._get_current_block(), constants.MODEL_CONSTRAINTS_BY_COMPETITION_ID
         )
         self.weights = self.state.ema_tracker.get_subnet_weights(competition_schedule)
 
@@ -213,7 +213,7 @@ class Validator(BaseValidatorNeuron):
             logging.warning(f"No evaluation data loaded for competition {competition.id}. Skipping step.")
             return
 
-        flat_samples = [batch for task_batches in samples for batch in task_batches]
+        #flat_samples = [batch for task_batches in samples for batch in task_batches]
 
         logging.debug(f"Competition {competition.id} | Computing scores on {uids}")
         kwargs = competition.constraints.kwargs.copy()
@@ -239,7 +239,12 @@ class Validator(BaseValidatorNeuron):
                     with compute_loss_perf.sample():
                         score, score_details = utils.run_in_subprocess(
                             functools.partial(
-                                score_time_series_model, model_i, BaseEvaluator(),  flat_samples, self.config.device, seed
+                                score_time_series_model, 
+                                model_i,  
+                                eval_tasks, 
+                                samples, 
+                                self.config.device, 
+                                seed
                             ),
                             ttl=550, mode="spawn"
                         )

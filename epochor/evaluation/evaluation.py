@@ -7,6 +7,7 @@ to compute the CRPS for ensemble forecasts.
 
 import numpy as np
 from properscoring import crps_ensemble
+from epochor.evaluation.method import EvalMethodId
 
 
 class BaseEvaluator:
@@ -80,7 +81,10 @@ class CRPSEvaluator(BaseEvaluator):
         # We take the mean to get a single scalar score for the entire series.
         crps_scores = crps_ensemble(observations=target, forecasts=prediction)
         
-        return float(np.mean(crps_scores))
+        return crps_scores
 
+EVALUATION_BY_COMPETITION = {
+    EvalMethodId.CRPS_LOSS: CRPSEvaluator,
+}
 
-__all__ = ["BaseEvaluator", "CRPSEvaluator"]
+__all__ = ["BaseEvaluator", "CRPSEvaluator", "EVALUATION_BY_COMPETITION"]
