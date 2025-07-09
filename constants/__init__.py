@@ -123,3 +123,39 @@ updated_models_limit  = 100                       # max concurrent evals
 
 # Filesystem
 ROOT_DIR              = os.path.dirname(os.path.abspath(__file__))
+
+
+# Add these to your constants.py
+
+import datetime as dt
+
+# EMA smoothing factor
+alpha: float = 0.3
+
+# Spec version of the validator (bump on incompatible changes)
+__spec_version__: str = "0.1.0"
+
+# ─── Cadences & Timeouts ───────────────────────────────────────────────────────
+# How often to scan top-miner weights (wall-clock)
+scan_top_model_cadence: dt.timedelta = dt.timedelta(minutes=60)
+
+# Minimum time between sequential chain-update checks
+chain_update_cadence: dt.timedelta = dt.timedelta(minutes=5)
+
+# How often to push weights on-chain
+set_weights_cadence: dt.timedelta = dt.timedelta(hours=1.5)
+
+# ─── Retry thresholds ───────────────────────────────────────────────────────────
+# Max blocks before retrying a previously-seen model
+model_retry_cadence: int = 1_000
+
+# ─── Weight-sync thresholds ────────────────────────────────────────────────────
+# Stake threshold for considering a miner “top”
+WEIGHT_SYNC_VALI_MIN_STAKE: float = 1_000.0
+
+# Percent-of-total-weight threshold
+WEIGHT_SYNC_MINER_MIN_PERCENT: float = 0.01
+
+# ─── On-chain versioning ────────────────────────────────────────────────────────
+# Version key passed when setting weights
+weights_version_key: str = "v1"
