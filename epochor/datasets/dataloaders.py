@@ -55,7 +55,7 @@ class SyntheticTimeSeriesDataset(TorchIterableDataset):
             batch_idx += 1
 
 
-class StaticSyntheticDataset(Dataset):
+class StaticSyntheticDataset(TorchDataset):
     def __init__(self, data_dict):
         # Infer length and ensure all fields match
         self.length = len(next(iter(data_dict.values())))
