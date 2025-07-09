@@ -63,7 +63,6 @@ class PerUIDEvalState:
 
 class Validator:
     def __init__(self, config=None):
-        super().__init__(config=config)
         self.config = config.validator_config() if config else config.validator_config()
 
         # === Bittensor objects ====
