@@ -133,7 +133,7 @@ import datetime as dt
 alpha: float = 0.3
 
 # Spec version of the validator (bump on incompatible changes)
-__spec_version__: int = 1
+__spec_version__: str = "0.1.0"
 
 # ─── Cadences & Timeouts ───────────────────────────────────────────────────────
 # How often to scan top-miner weights (wall-clock)
@@ -159,3 +159,11 @@ WEIGHT_SYNC_MINER_MIN_PERCENT: float = 0.01
 # ─── On-chain versioning ────────────────────────────────────────────────────────
 # Version key passed when setting weights
 weights_version_key: str = "v1"
+
+__validator_version__ = "0.0.1"
+version_split = __validator_version__.split(".")
+__spec_version__ = (
+    (1000 * int(version_split[0]))
+    + (10 * int(version_split[1]))
+    + (1 * int(version_split[2]))
+)
