@@ -111,3 +111,15 @@ def get_list_of_uids(
             for uid in range(len(metagraph.hotkeys))
             if uid % pass_through_config == self_uid % pass_through_config
         ]
+import os
+
+# Base project settings
+WANDB_PROJECT         = "epocher-validator"       # your wandb project name
+SUBNET_UID            = 2                    # your Bittensor subnet UID
+
+# Validator-specific defaults
+sample_min            =  10                       # min UIDs per eval round
+updated_models_limit  = 100                       # max concurrent evals
+
+# Filesystem
+ROOT_DIR              = os.path.dirname(os.path.abspath(__file__))
