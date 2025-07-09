@@ -62,8 +62,8 @@ class PerUIDEvalState:
     score_details: typing.Dict[str, ScoreDetails] = dataclasses.field(default_factory=dict)
 
 class Validator:
-    def __init__(self, config=None):
-        self.config = config.validator_config() if config else config.validator_config()
+    def __init__(self):
+        self.config = config.validator_config() 
 
         # === Bittensor objects ====
         try:
