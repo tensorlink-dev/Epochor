@@ -136,8 +136,10 @@ class Validator:
         )
 
         # Initial weights from loaded state
+
         competition_schedule = get_competition_schedule_for_block(
-            self._get_current_block(), constants.MODEL_CONSTRAINTS_BY_COMPETITION_ID
+            block=self._get_current_block(),
+            schedule_by_block=constants.COMPETITION_SCHEDULE_BY_BLOCK,
         )
         self.weights = self.state.ema_tracker.get_subnet_weights(competition_schedule)
 
