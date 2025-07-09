@@ -1,6 +1,6 @@
 import time
-from torch.utils.data import IterableDataset as TorchIterableDataset
-from torch.utils.data import Dataset as TorchDataset
+from torch.utils.data import IterableDataset 
+from torch.utils.data import Dataset as Dataset
 from torch.utils.data import DataLoader
 from typing import Iterator, Optional, Any, Dict
 
@@ -14,7 +14,7 @@ except ImportError:
     HfIterableDataset = None
 
 
-class SyntheticTimeSeriesDataset(TorchIterableDataset):
+class SyntheticTimeSeriesDataset(IterableDataset):
     """
     Wraps SyntheticBenchmarkerV1 so that each iteration yields one batch of synthetic data.
     Each call to `bench.prepare_data(seed)` returns a dict containing:
@@ -55,7 +55,7 @@ class SyntheticTimeSeriesDataset(TorchIterableDataset):
             batch_idx += 1
 
 
-class StaticSyntheticDataset(TorchDataset):
+class StaticSyntheticDataset(Dataset):
     def __init__(self, data_dict):
         # Infer length and ensure all fields match
         self.length = len(next(iter(data_dict.values())))
