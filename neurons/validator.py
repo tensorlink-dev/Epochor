@@ -61,7 +61,7 @@ class PerUIDEvalState:
     score: float = math.inf
     score_details: typing.Dict[str, ScoreDetails] = dataclasses.field(default_factory=dict)
 
-class Validator(BaseValidatorNeuron):
+class Validator:
     def __init__(self, config=None):
         super().__init__(config=config)
         self.config = config.validator_config() if config else config.validator_config()
