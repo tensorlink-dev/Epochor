@@ -29,8 +29,8 @@ from template.base.validator import BaseValidatorNeuron
 from epochor.model.model_constraints import Competition
 from constants import CompetitionId
 from epochor.utils.competition_utils import get_competition_schedule_for_block
-from . import config
-from .validator_components import ValidatorState, ModelManager, WeightSetter, should_retry_model
+from neurons import config
+from neurons.validator_components import ValidatorState, ModelManager, WeightSetter, should_retry_model
 from epochor.model.model_updater import ModelUpdater, MinerMisconfiguredError
 from epochor.model.storage.disk_model_store import DiskModelStore
 from epochor.model.storage.hf_model_store import HuggingFaceModelStore
