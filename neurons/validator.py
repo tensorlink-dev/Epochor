@@ -101,7 +101,9 @@ class Validator:
             self._new_wandb_run()
 
         # === Running args ===
-        self.weights = torch.zeros_like(self.metagraph.S, dtype=torch.float32)
+        # inside __init__
+        S_tensor = torch.from_numpy(self.metagraph.S)                    # now a Tensor
+        self.weights = torch.zeros_like(S_tensor, dtype=torch.float32)   # zeros of same shape
         self.global_step = 0
         self.miner_iterator = MinerIterator(self.metagraph.uids.tolist())
 
