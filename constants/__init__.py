@@ -133,7 +133,6 @@ import datetime as dt
 alpha: float = 0.3
 
 # Spec version of the validator (bump on incompatible changes)
-__spec_version__: str = "0.1.0"
 
 # ─── Cadences & Timeouts ───────────────────────────────────────────────────────
 # How often to scan top-miner weights (wall-clock)

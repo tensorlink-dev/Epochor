@@ -42,6 +42,7 @@ from taoverse.utilities.perf_monitor import PerfMonitor
 from taoverse.metagraph.metagraph_syncer import MetagraphSyncer
 
 import constants
+from competition import competitions 
 
 # Epochor Imports
 from epochor.datasets.dataloaders import DatasetLoaderFactory
@@ -139,7 +140,7 @@ class Validator:
 
         competition_schedule = get_competition_schedule_for_block(
             block=self._get_current_block(),
-            schedule_by_block=constants.COMPETITION_SCHEDULE_BY_BLOCK,
+            schedule_by_block=competitions.COMPETITION_SCHEDULE_BY_BLOCK,
         )
         self.weights = self.state.ema_tracker.get_subnet_weights(competition_schedule)
 
@@ -173,7 +174,7 @@ class Validator:
         
         competition_schedule = get_competition_schedule_for_block(
             block=cur_block,
-            schedule_by_block=constants.COMPETITION_SCHEDULE_BY_BLOCK,
+            schedule_by_block=competitions.COMPETITION_SCHEDULE_BY_BLOCK,
         )
         competition = competition_schedule[self.global_step % len(competition_schedule)]
         logging.info(f"Starting evaluation for competition: {competition.id}")
