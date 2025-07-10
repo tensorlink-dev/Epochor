@@ -335,7 +335,7 @@ class ModelManager:
                     competition = competition_utils.get_competition_for_block(
                         model_metadata.id.competition_id,
                         curr_block,
-                        competitions.COMPETITION_SCHEDULE_BY_BLOCK,,
+                        competitions.COMPETITION_SCHEDULE_BY_BLOCK,
                     )
                     if competition is not None and not is_queued_for_eval:
                         eval_history = (
@@ -360,7 +360,7 @@ class ModelManager:
                             uid=next_uid,
                             hotkey=hotkey,
                             curr_block=curr_block,
-                            schedule_by_block=competitions.COMPETITION_SCHEDULE_BY_BLOCK,,
+                            schedule_by_block=competitions.COMPETITION_SCHEDULE_BY_BLOCK,
                             force=force_sync,
                         )
                     )
@@ -454,7 +454,7 @@ class ModelManager:
                                 uid=uid,
                                 hotkey=hotkey,
                                 curr_block=curr_block,
-                                schedule_by_block=competitions.COMPETITION_SCHEDULE_BY_BLOCK,,
+                                schedule_by_block=competitions.COMPETITION_SCHEDULE_BY_BLOCK,
                                 force=True,
                             )
                         )
