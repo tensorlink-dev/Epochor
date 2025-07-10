@@ -80,8 +80,9 @@ class Validator:
                 logger.setLevel(logging.WARNING)
 
     # Configure the Taoverse logger, which is our primary logger.
-        logging.reinitialize()
+        reinitialize_logging()
         configure_logging(config)
+        
     def __init__(self):
         self.config = config.validator_config() 
         self._configure_logging(self.config)
