@@ -115,7 +115,7 @@ class Validator:
 
         # Setup State
         state_dir = os.path.join(self.config.model_dir, "vali-state")
-        self.state = ValidatorState(base_dir=state_dir, metagraph_lock=self.metagraph_lock)
+        self.state = ValidatorState(metagraph = self.metagraph, base_dir=state_dir, metagraph_lock=self.metagraph_lock)
         self.state.load()
 
         # Setup Model Updater & Manager
