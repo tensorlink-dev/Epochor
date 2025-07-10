@@ -4,7 +4,7 @@
 
 import os
 import pickle
-import logging
+import 
 import typing
 import threading
 import time
@@ -103,47 +103,47 @@ class ValidatorState:
 
         # If this is an upgrade, blow away state so that everything is re-evaluated.
         if previous_version != constants.__spec_version__:
-            logging.info(
+            bt.logging.info(
                 f"Validator updated. Previous version={previous_version}. Current version={constants.__spec_version__}"
             )
             if os.path.exists(self.uids_filepath):
-                logging.info(
+                bt.logging.info(
                     f"Because the validator updated, deleting {self.uids_filepath} so everything is re-evaluated."
                 )
                 os.remove(self.uids_filepath)
             if os.path.exists(self.model_tracker_filepath):
-                logging.info(
+                bt.logging.info(
                     f"Because the validator updated, deleting {self.model_tracker_filepath} so everything is re-evaluated."
                 )
                 os.remove(self.model_tracker_filepath)
 
         # Initialize the model tracker.
         if not os.path.exists(self.model_tracker_filepath):
-            logging.warning("No model tracker state file found. Starting from scratch.")
+            bt.logging.warning("No model tracker state file found. Starting from scratch.")
         else:
             try:
                 self.model_tracker.load_state(self.model_tracker_filepath)
             except Exception as e:
-                logging.warning(
+                bt.logging.warning(
                     f"Failed to load model tracker state. Reason: {e}. Starting from scratch."
                 )
 
         # Initialize the competition tracker.
         if not os.path.exists(self.competition_tracker_filepath):
-            logging.warning(
+            bt.logging.warning(
                 "No competition tracker state file found. Starting from scratch."
             )
         else:
             try:
                 self.ema_tracker.load_state(self.competition_tracker_filepath)
             except Exception as e:
-                logging.warning(
+                bt.logging.warning(
                     f"Failed to load competition tracker state. Reason: {e}. Starting from scratch."
                 )
 
         # Initialize the UIDs to eval.
         if not os.path.exists(self.uids_filepath):
-            logging.warning("No uids state file found. Starting from scratch.")
+            bt.logging.warning("No uids state file found. Starting from scratch.")
             self.uids_to_eval = defaultdict(set)
             self.pending_uids_to_eval = defaultdict(set)
         else:
@@ -152,7 +152,7 @@ class ValidatorState:
                     self.uids_to_eval = pickle.load(f)
                     self.pending_uids_to_eval = pickle.load(f)
             except Exception as e:
-                logging.warning(
+                bt.logging.warning(
                     f"Failed to load uids to eval state. Reason: {e}. Starting from scratch."
                 )
                 self.uids_to_eval = defaultdict(set)
@@ -160,13 +160,13 @@ class ValidatorState:
                 # We also need to wipe the model tracker state in this case to ensure we re-evaluate all the models.
                 self.model_tracker = ModelTracker()
                 if os.path.exists(self.model_tracker_filepath):
-                    logging.warning(
+                    bt.logging.warning(
                         f"Because the uids to eval state failed to load, deleting model tracker state at {self.model_tracker_filepath} so everything is re-evaluated."
                     )
                     os.remove(self.model_tracker_filepath)
 
     def save(self):
-        logging.trace("Saving validator state.")
+        bt.logging.trace("Saving validator state.")
         os.makedirs(self.base_dir, exist_ok=True)
 
         with self.pending_uids_to_eval_lock:
@@ -201,7 +201,7 @@ class ValidatorState:
                 set(self.uids_to_eval.keys()) | set(self.pending_uids_to_eval.keys())
             ) - active_competitions
             for comp in comps_to_delete:
-                logging.debug(
+                bt.logging.debug(
                     f"Cleaning up uids to eval from sunset competition {comp}."
                 )
                 if comp in self.uids_to_eval:
@@ -309,7 +309,7 @@ class ModelManager:
                     time_to_sleep = (
                         constants.chain_update_cadence - time_diff
                     ).total_seconds()
-                    logging.trace(
+                    bt.logging.trace(
                         f"Update loop has already processed all UIDs in the last {constants.chain_update_cadence}. Sleeping {time_to_sleep} seconds."
                     )
                     time.sleep(time_to_sleep)
@@ -349,7 +349,7 @@ class ModelManager:
                             eval_history,
                         )
                         if force_sync:
-                            logging.debug(
+                            bt.logging.debug(
                                 f"Force downloading model for UID {next_uid} because it should be retried. Eval_history={eval_history}"
                             )
 
@@ -384,20 +384,20 @@ class ModelManager:
                     )
                     if metadata is not None:
                         self.state.add_pending_uid_to_eval(metadata.id.competition_id, next_uid)
-                        logging.debug(
+                        bt.logging.debug(
                             f"Found a new model for UID={next_uid} for competition {metadata.id.competition_id}. It will be evaluated on the next loop."
                         )
                     else:
-                        logging.warning(
+                        bt.logging.warning(
                             f"Failed to find metadata for uid {next_uid} with hotkey {hotkey}"
                         )
                     # inside the `if updated:` block, after you know this `uid` got a fresh model
                     self.state.reset_ema_uid(metadata.id.competition_id, next_uid)
 
             except Exception as e:
-                logging.error(f"Error in update loop: {e} :{traceback.format_exc()}")
+                bt.logging.error(f"Error in update loop: {e} :{traceback.format_exc()}")
 
-        logging.info("Exiting update models loop.")
+        bt.logging.info("Exiting update models loop.")
 
     def _wait_for_open_eval_slot(self) -> None:
         """Waits until there is at least one slot open to download and evaluate a model."""
@@ -405,7 +405,7 @@ class ModelManager:
 
         while pending_uid_count + current_uid_count >= constants.updated_models_limit:
             # Wait 5 minutes for the eval loop to process them.
-            logging.info(
+            bt.logging.info(
                 f"Update loop: There are already {pending_uid_count + current_uid_count} synced models pending eval. Checking again in 5 minutes."
             )
             time.sleep(300)
@@ -486,18 +486,18 @@ class ModelManager:
                         self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
                     )
                     if top_model_metadata is not None:
-                        logging.trace(
+                        bt.logging.trace(
                             f"Shortcutting to top model or retrying evaluation for previously discarded top model with incentive for UID={uid}"
                         )
                         self.state.add_pending_uid_to_eval(top_model_metadata.id.competition_id, uid)
 
                     else:
-                        logging.warning(
+                        bt.logging.warning(
                             f"Failed to find metadata for uid {uid} with hotkey {hotkey}"
                         )
 
                 except Exception:
-                    logging.debug(
+                    bt.logging.debug(
                         f"Failure in update loop for UID={uid} during top model check. {traceback.format_exc()}"
                     )
 
@@ -512,7 +512,7 @@ class ModelManager:
         # The below loop checks to clear out all models in local storage that are no longer referenced.
         while not self.stop_event.is_set():
             try:
-                logging.trace("Starting cleanup of stale models.")
+                bt.logging.trace("Starting cleanup of stale models.")
 
                 # Get a mapping of all hotkeys to model ids.
                 hotkey_to_model_metadata = (
@@ -550,12 +550,12 @@ class ModelManager:
                 )
 
             except Exception as e:
-                logging.error(f"Error in clean loop: {e}")
+                bt.logging.error(f"Error in clean loop: {e}")
 
             # Only check every 5 minutes.
             time.sleep(dt.timedelta(minutes=5).total_seconds())
 
-        logging.info("Exiting clean models loop.")
+        bt.logging.info("Exiting clean models loop.")
 
 
 
@@ -577,7 +577,7 @@ class WeightSetter:
                 time.sleep(constants.set_weights_cadence)
                 asyncio.run(self._try_set_weights_loop())
             except Exception as e:
-                logging.error(f"Error in weight setting loop: {e}")
+                bt.logging.error(f"Error in weight setting loop: {e}")
 
     async def _try_set_weights_loop(self):
         """The main weight setting loop."""
@@ -587,7 +587,7 @@ class WeightSetter:
                 await asyncio.sleep(constants.set_weights_cadence.total_seconds())
                 await self._set_weights()
             except Exception as e:
-                logging.error(
+                bt.logging.error(
                     f"Error in weight setting loop: {e}. {traceback.format_exc()}"
                 )
 
@@ -612,16 +612,16 @@ class WeightSetter:
                     max_retries=1,
                 )
             except Exception as e:
-                logging.warning(
+                bt.logging.warning(
                     f"Failed to set weights due to {e}. Trying again later."
                 )
                 return (False, str(e))
 
         try:
-            logging.debug(f"Setting weights.")
+            bt.logging.debug(f"Setting weights.")
             status = await asyncio.wait_for(_try_set_weights(), ttl)
-            logging.debug(f"Finished setting weights with status: {status}.")
+            bt.logging.debug(f"Finished setting weights with status: {status}.")
             return status
         except asyncio.TimeoutError:
-            logging.error(f"Failed to set weights after {ttl} seconds")
+            bt.logging.error(f"Failed to set weights after {ttl} seconds")
             return (False, f"Timeout after {ttl} seconds")
