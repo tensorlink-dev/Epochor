@@ -62,12 +62,12 @@ def _configure_logging(self, config: bt.config) -> None:
     #BT logging is noisy, so set it to only log errors.
     bt.logging.set_warning()
 
-    Setting logging level on bittensor messes with all loggers, which we don't want, so set explicitly to warning here.
+    #Setting logging level on bittensor messes with all loggers, which we don't want, so set explicitly to warning here.
     for logger in all_loggers():
         if not logger.name.startswith(BITTENSOR_LOGGER_NAME):
             logger.setLevel(logging.WARNING)
 
-    Configure the Taoverse logger, which is our primary logger.
+   # Configure the Taoverse logger, which is our primary logger.
     logging.reinitialize()
     configure_logging(config)
 
