@@ -88,7 +88,7 @@ class ValidatorState:
         self.version_filepath = os.path.join(base_dir, ValidatorState.VERSION_FILENAME)
 
         self.model_tracker = ModelTracker()
-        self.ema_tracker = EMATracker(alpha=constants.alpha)
+        self.ema_tracker = CompetitionEMATracker(num_neurons=len(self.metagraph.uids),default_alpha=constants.alpha)
 
         self.uids_to_eval: typing.Dict[int, typing.Set] = defaultdict(set)
         self.pending_uids_to_eval: typing.Dict[int, typing.Set] = defaultdict(set)
