@@ -42,7 +42,7 @@ from taoverse.utilities.perf_monitor import PerfMonitor
 from taoverse.metagraph.metagraph_syncer import MetagraphSyncer
 
 import constants
-from competition import competitions 
+from competitions import competitions 
 
 # Epochor Imports
 from epochor.datasets.dataloaders import DatasetLoaderFactory
