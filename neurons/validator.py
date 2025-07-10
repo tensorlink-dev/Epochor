@@ -52,6 +52,24 @@ from epochor.model import model_utils
 from epochor.validation.validation import  score_time_series_model, ScoreDetails, compute_scores
 from torch.utils.data import Dataset, DataLoader
 
+from epochor.utils.logging import configure_logging,reinitialize_logging
+
+from bittensor.utils.btlogging.defines import BITTENSOR_LOGGER_NAME
+from bittensor.utils.btlogging.helpers import all_loggers
+
+
+def _configure_logging(self, config: bt.config) -> None:
+    #BT logging is noisy, so set it to only log errors.
+    bt.logging.set_warning()
+
+    Setting logging level on bittensor messes with all loggers, which we don't want, so set explicitly to warning here.
+    for logger in all_loggers():
+        if not logger.name.startswith(BITTENSOR_LOGGER_NAME):
+            logger.setLevel(logging.WARNING)
+
+    Configure the Taoverse logger, which is our primary logger.
+    logging.reinitialize()
+    configure_logging(config)
 
 @dataclasses.dataclass
 class PerUIDEvalState:
@@ -65,6 +83,7 @@ class PerUIDEvalState:
 class Validator:
     def __init__(self):
         self.config = config.validator_config() 
+        self._configure_logging(self.config)
 
         # === Bittensor objects ====
         try:
