@@ -58,18 +58,7 @@ from bittensor.utils.btlogging.defines import BITTENSOR_LOGGER_NAME
 from bittensor.utils.btlogging.helpers import all_loggers
 
 
-def _configure_logging(self, config: bt.config) -> None:
-    #BT logging is noisy, so set it to only log errors.
-    bt.logging.set_warning()
 
-    #Setting logging level on bittensor messes with all loggers, which we don't want, so set explicitly to warning here.
-    for logger in all_loggers():
-        if not logger.name.startswith(BITTENSOR_LOGGER_NAME):
-            logger.setLevel(logging.WARNING)
-
-   # Configure the Taoverse logger, which is our primary logger.
-    logging.reinitialize()
-    configure_logging(config)
 
 @dataclasses.dataclass
 class PerUIDEvalState:
@@ -82,6 +71,18 @@ class PerUIDEvalState:
 
 class Validator:
     def __init__(self):
+        def _configure_logging(self, config: bt.config) -> None:
+            #BT logging is noisy, so set it to only log errors.
+            bt.logging.set_warning()
+
+            #Setting logging level on bittensor messes with all loggers, which we don't want, so set explicitly to warning here.
+            for logger in all_loggers():
+                if not logger.name.startswith(BITTENSOR_LOGGER_NAME):
+                    logger.setLevel(logging.WARNING)
+
+        # Configure the Taoverse logger, which is our primary logger.
+            logging.reinitialize()
+            configure_logging(config)
         self.config = config.validator_config() 
         self._configure_logging(self.config)
 
