@@ -9,7 +9,7 @@
 # The above copyright notice and this permission notice shall be included in all copies or substantial portions of
 # the Software.
 
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from constants import CompetitionId, BATCH_SIZE
 from epochor.model.model_constraints import Competition, EvalTask, EvalMethodId, DatasetId, NormalizationId, MODEL_CONSTRAINTS_BY_COMPETITION_ID
 
