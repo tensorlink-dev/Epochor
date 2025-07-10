@@ -21,7 +21,7 @@ import numpy
 
 import constants
 from epochor.utils import misc as utils
-from epochor.validation.ema_tracker import EMATracker
+from epochor.validation.ema_tracker import CompetitionEMATracker
 from epochor.model.model_tracker import ModelTracker
 from epochor.model.model_updater import MinerMisconfiguredError
 from epochor.model.model_data import EvalResult
@@ -76,7 +76,7 @@ class ValidatorState:
     UIDS_FILENAME = "uids.pickle"
     VERSION_FILENAME = "version.txt"
 
-    def __init__(self, base_dir: str, metagraph_lock: threading.RLock):
+    def __init__(self,metagraph :  bt.metagraph, base_dir: str, metagraph_lock: threading.RLock):
         self.base_dir = base_dir
         self.uids_filepath = os.path.join(base_dir, ValidatorState.UIDS_FILENAME)
         self.model_tracker_filepath = os.path.join(
@@ -88,7 +88,7 @@ class ValidatorState:
         self.version_filepath = os.path.join(base_dir, ValidatorState.VERSION_FILENAME)
 
         self.model_tracker = ModelTracker()
-        self.ema_tracker = CompetitionEMATracker(num_neurons=len(self.metagraph.uids),default_alpha=constants.alpha)
+        self.ema_tracker = CompetitionEMATracker(num_neurons=len(metagraph.uids),default_alpha=constants.alpha)
 
         self.uids_to_eval: typing.Dict[int, typing.Set] = defaultdict(set)
         self.pending_uids_to_eval: typing.Dict[int, typing.Set] = defaultdict(set)
