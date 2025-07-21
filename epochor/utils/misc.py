@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, Sequence
 
 import bittensor as bt
-
+import asyncio
 import epochor.utils.logging as logging
 
 
@@ -58,7 +58,7 @@ def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
     return result
 
 
-def run_in_thread(func: functools.partial, ttl: int, name=None) -> Any:
+async def run_in_thread(func: functools.partial, ttl: int, name=None) -> Any:
     """Runs the provided function on a thread with 'ttl' seconds to complete.
 
     Args:
@@ -68,17 +68,14 @@ def run_in_thread(func: functools.partial, ttl: int, name=None) -> Any:
     Returns:
         Any: The value returned by 'func'
     """
-
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-
+    loop = asyncio.get_event_loop()
     try:
-        future = executor.submit(func)
-        return future.result(timeout=ttl)
+        return await loop.run_in_executor(
+            None, func
+        )
     except concurrent.futures.TimeoutError as e:
         logging.error(f"Failed to complete '{name}' within {ttl} seconds.")
         raise TimeoutError(f"Failed to complete '{name}' within {ttl} seconds.") from e
-    finally:
-        executor.shutdown(wait=False)
 
 
 def get_version(filepath: str) -> Optional[int]:
