@@ -368,7 +368,6 @@ class ModelManager:
                 except MinerMisconfiguredError as e:
                     self.model_tracker.on_model_updated(
                         hotkey,
-                        0,  # Technically this is B7 but that is unused.
                         EvalResult(
                             block=curr_block,
                             score=math.inf,
@@ -462,7 +461,6 @@ class ModelManager:
                     except MinerMisconfiguredError as e:
                         self.model_tracker.on_model_updated(
                             hotkey,
-                            0,  # Technically this is B7 but that is unused.
                             EvalResult(
                                 block=curr_block,
                                 score=math.inf,

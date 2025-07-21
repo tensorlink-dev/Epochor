@@ -23,8 +23,7 @@ class ModelTracker:
                 if hotkey not in hotkeys:
                     del self.miner_hotkey_to_eval_results[hotkey]
 
-    def on_model_updated(self, hotkey: str, metadata: ModelMetadata):
-        """Called when a new model is downloaded for a specific miner."""
+c        """Called when a new model is downloaded for a specific miner."""
         with self.lock:
             self.miner_hotkey_to_model_metadata[hotkey] = metadata
 
