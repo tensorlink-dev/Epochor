@@ -366,7 +366,7 @@ class ModelManager:
                         )
                     )
                 except MinerMisconfiguredError as e:
-                    self.model_tracker.on_hotkeys_updated(
+                    self.model_tracker.on_model_evaluated(
                         hotkey,
                         EvalResult(
                             block=curr_block,
