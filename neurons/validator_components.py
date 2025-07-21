@@ -30,6 +30,7 @@ from epochor.utils import metagraph_utils
 from constants import CompetitionId
 from epochor.utils import competition_utils
 from epochor.model.storage.disk_model_store import DiskModelStore # Import DiskModelStore
+from competitions import competitions 
 
 from taoverse.utilities.perf_monitor import PerfMonitor
 
