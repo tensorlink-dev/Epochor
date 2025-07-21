@@ -366,7 +366,7 @@ class ModelManager:
                         )
                     )
                 except MinerMisconfiguredError as e:
-                    self.model_tracker.on_model_updated(
+                    self.model_tracker.on_hotkeys_updated(
                         hotkey,
                         EvalResult(
                             block=curr_block,
@@ -459,12 +459,11 @@ class ModelManager:
                             )
                         )
                     except MinerMisconfiguredError as e:
-                        self.model_tracker.on_model_updated(
+                        self.model_tracker.on_model_evaluated(
                             hotkey,
                             EvalResult(
                                 block=curr_block,
                                 score=math.inf,
-                                # We don't care about the winning model for this check since we just need to log the model eval failure.
                                 winning_model_block=0,
                                 winning_model_score=0,
                             ),
