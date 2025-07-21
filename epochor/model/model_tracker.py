@@ -23,7 +23,8 @@ class ModelTracker:
                 if hotkey not in hotkeys:
                     del self.miner_hotkey_to_eval_results[hotkey]
 
-c        """Called when a new model is downloaded for a specific miner."""
+    def on_model_downloaded(self, hotkey: str, metadata: ModelMetadata):
+        """Called when a new model is downloaded for a specific miner."""
         with self.lock:
             self.miner_hotkey_to_model_metadata[hotkey] = metadata
 
@@ -76,15 +77,3 @@ c        """Called when a new model is downloaded for a specific miner."""
         with open(filepath, "rb") as f:
             self.miner_hotkey_to_model_metadata = pickle.load(f)
             self.miner_hotkey_to_eval_results = pickle.load(f)
-
-    def get_block_last_evaluated(self, hotkey: str) -> Optional[int]:
-        """Returns the block number of the last evaluation for a specific miner."""
-        with self.lock:
-            if hotkey in self.miner_hotkey_to_eval_results and self.miner_hotkey_to_eval_results[hotkey]:
-                # Find the competition with the most recent eval
-                last_eval_block = 0
-                for results in self.miner_hotkey_to_eval_results[hotkey].values():
-                    if results:
-                        last_eval_block = max(last_eval_block, results[-1].block)
-                return last_eval_block
-            return None
