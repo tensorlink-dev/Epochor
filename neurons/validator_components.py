@@ -361,7 +361,7 @@ class ModelManager:
                             uid=next_uid,
                             hotkey=hotkey,
                             curr_block=curr_block,
-                            schedule_by_block=competitions.COMPETITION_SCHEDULE_BY_BLOCK,
+                            schedule=competitions.COMPETITION_SCHEDULE_BY_BLOCK,
                             force=force_sync,
                         )
                     )
@@ -455,7 +455,7 @@ class ModelManager:
                                 uid=uid,
                                 hotkey=hotkey,
                                 curr_block=curr_block,
-                                schedule_by_block=competitions.COMPETITION_SCHEDULE_BY_BLOCK,
+                                schedule=competitions.COMPETITION_SCHEDULE_BY_BLOCK,
                                 force=True,
                             )
                         )
