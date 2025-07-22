@@ -33,7 +33,7 @@ import constants
 from epochor.model import model_utils
 from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.base_metadata_model_store import ModelMetadataStore
-from epochor.model.model_data import Model, ModelId
+from epochor.model.model_data import Model, ModelId, ModelMetadata
 from epochor.utils.hashing import get_hash_of_two_strings
 from epochor.model.storage.hf_model_store import HuggingFaceModelStore
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
@@ -153,6 +153,88 @@ async def push(
             token=HuggingFaceModelStore.assert_access_token_exists(),
         )
         logging.info("Model set to public")
+
+async def register(
+    wallet: bt.wallet,
+    repo_id: str,
+    commit_hash: str,
+    competition_id: CompetitionId,
+    retry_delay_secs: int = 60,
+    metadata_store: Optional[ModelMetadataStore] = None,
+    netuid: int = constants.SUBNET_UID,
+    subtensor: bt.subtensor = None,
+):
+    """Registers a Hugging Face model to the subnet without uploading it.
+
+    Args:
+        wallet (bt.wallet): The wallet of the Miner registering the model.
+        repo_id (str): The Hugging Face repo ID.
+        commit_hash (str): The commit hash of the model on Hugging Face.
+        competition_id (CompetitionId): The competition the miner is participating in.
+        retry_delay_secs (int): The number of seconds to wait before retrying to push the model to the chain.
+        metadata_store (Optional[ModelMetadataStore]): The metadata store. If None, defaults to writing to the
+            chain.
+        netuid (int): The subnet UID.
+        subtensor (bt.subtensor): The subtensor object.
+    """
+    logging.info("Registering model")
+
+    if subtensor is None:
+        subtensor = bt.subtensor()
+
+    if metadata_store is None:
+        metadata_store = ChainModelMetadataStore(
+            subtensor=subtensor, subnet_uid=netuid, wallet=wallet
+        )
+
+    namespace, name = model_utils.validate_hf_repo_id(repo_id)
+    model_id = ModelId(
+        namespace=namespace,
+        name=name,
+        hash=commit_hash,
+        competition_id=competition_id,
+    )
+
+    secure_hash = get_hash_of_two_strings(model_id.hash, wallet.hotkey.ss58_address)
+    model_id = replace(model_id, secure_hash=secure_hash)
+
+    logging.info(f"Now committing to the chain with model_id: {model_id}")
+
+    while True:
+        try:
+            await metadata_store.store_model_metadata(
+                wallet.hotkey.ss58_address, model_id
+            )
+
+            logging.info(
+                "Wrote model metadata to the chain. Checking we can read it back..."
+            )
+
+            uid = subtensor.get_uid_for_hotkey_on_subnet(
+                wallet.hotkey.ss58_address, netuid
+            )
+
+            model_metadata = await metadata_store.retrieve_model_metadata(
+                uid, wallet.hotkey.ss58_address
+            )
+
+            if (
+                not model_metadata
+                or model_metadata.id.to_compressed_str() != model_id.to_compressed_str()
+            ):
+                logging.error(
+                    f"Failed to read back model metadata from the chain. Expected: {model_id}, got: {model_metadata}"
+                )
+                raise ValueError(
+                    f"Failed to read back model metadata from the chain. Expected: {model_id}, got: {model_metadata}"
+                )
+
+            logging.info("Committed model to the chain.")
+            break
+        except Exception as e:
+            logging.error(f"Failed to advertise model on the chain: {e}")
+            logging.error(f"Retrying in {retry_delay_secs} seconds...")
+            time.sleep(retry_delay_secs)
 
 
 def save(model:  BaseTemporalModel, model_dir: str):
