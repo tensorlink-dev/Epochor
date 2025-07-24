@@ -57,7 +57,7 @@ def get_config() -> bt.config:
     parser.add_argument(
         "--competition_id",
         type=CompetitionId,
-        action=IntEnum,
+        choices=[0, 1, 2],
         required=True,
         help="The competition to upload the model for.",
     )
