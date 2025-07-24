@@ -19,7 +19,7 @@ import epochor.mining as mining
 import constants
 from epochor.utils import metagraph_utils
 
-from epochor.utils import utils as epochor_utils
+from epochor.utils import logging
 from constants import CompetitionId
 
 
@@ -102,8 +102,8 @@ async def main(config: bt.config):
     """
     # Initialize Bittensor objects.
     bt.logging(config=config)
-    epochor_utils.reinitialize_logging()
-    epochor_utils.configure_logging(config)
+    logging.reinitialize_logging()
+    logging.configure_logging(config)
 
     wallet = bt.wallet(config=config)
     subtensor = bt.subtensor(config=config)
