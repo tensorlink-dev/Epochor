@@ -100,7 +100,6 @@ async def main(config: bt.config):
 
     # Ensure the miner is registered and has a Hugging Face token.
     metagraph_utils.assert_registered(wallet, metagraph)
-    HuggingFaceModelStore.assert_access_token_exists()
     
     # Get the HF Repo Information
     hf_api = HfApi()
