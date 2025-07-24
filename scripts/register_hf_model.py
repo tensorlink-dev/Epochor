@@ -56,8 +56,8 @@ def get_config() -> bt.config:
     )
     parser.add_argument(
         "--competition_id",
-        type=CompetitionId,
-        choices=[0, 1, 2],
+        type=int,
+        choices=[c.value for c in CompetitionId],
         required=True,
         help="The competition to upload the model for.",
     )
@@ -88,6 +88,9 @@ async def main(config: bt.config):
     wallet = bt.wallet(config=config)
     subtensor = bt.subtensor(config=config)
     metagraph = subtensor.metagraph(config.netuid)
+
+    # Convert the integer competition_id to the CompetitionId enum.
+    config.competition_id = CompetitionId(config.competition_id)
     
     chain_metadata_store = ChainModelMetadataStore(
         subtensor=subtensor,
