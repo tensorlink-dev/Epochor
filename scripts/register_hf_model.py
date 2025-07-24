@@ -18,21 +18,43 @@ from huggingface_hub import HfApi
 import epochor.mining as mining
 import constants
 from epochor.utils import metagraph_utils
-from epochor.model.storage.chain.chain_model_metadata_store import (
-    ChainModelMetadataStore,
-)
-from epochor.model.storage.hugging_face.hugging_face_model_store import (
-    HuggingFaceModelStore,
-)
-from epochor.utils import utils as epochor_utils
-from epochor.competition.data import CompetitionId, IntEnumAction
 
+from epochor.utils import utils as epochor_utils
+from constants import CompetitionId
+
+
+from epochor.model.storage.hf_model_store import HuggingFaceModelStore
+from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
+
+
+from enum import IntEnum
 
 # Load environment variables from .env file.
 load_dotenv()
 
 # Set TOKENIZERS_PARALLELISM to true to avoid warnings.
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
+
+class IntEnumAction(argparse.Action):
+    """
+    Argparse action for handling integer enumerations.
+    """
+    def __init__(self, **kwargs):
+        enum_type = kwargs.pop("type", None)
+        assert enum_type is not None, "type must be assigned an Enum when using IntEnumAction"
+        if not issubclass(enum_type, IntEnum):
+            raise TypeError("type must be an IntEnum when using IntEnumAction")
+        kwargs.setdefault("choices", list(enum_type))
+        super().__init__(**kwargs)
+        self._enum_type = enum_type
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if isinstance(values, list):
+            value = [self._enum_type(int(v)) for v in values]
+        else:
+            value = self._enum_type(int(values))
+        setattr(namespace, self.dest, value)
+
 
 
 def get_config() -> bt.config:
