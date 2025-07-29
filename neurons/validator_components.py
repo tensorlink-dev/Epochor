@@ -366,6 +366,7 @@ class ModelManager:
                         )
                     )
                 except MinerMisconfiguredError as e:
+                    bt.logging.warning(f"Failed to sync model for UID {next_uid}: {e}")
                     self.model_tracker.on_model_evaluated(
                         hotkey,
                         0,
@@ -377,7 +378,7 @@ class ModelManager:
                             winning_model_score=0,
                         ),
                     )
-                    raise e
+                    updated = False
 
                 if updated:
                     metadata = self.model_tracker.get_model_metadata_for_miner_hotkey(
@@ -460,6 +461,7 @@ class ModelManager:
                             )
                         )
                     except MinerMisconfiguredError as e:
+                        bt.logging.warning(f"Failed to sync model for UID {uid}: {e}")
                         self.model_tracker.on_model_evaluated(
                             hotkey,
                             0,
@@ -470,7 +472,7 @@ class ModelManager:
                                 winning_model_score=0,
                             ),
                         )
-                        raise e
+                        should_retry = False
 
                     if not should_retry:
                         continue
