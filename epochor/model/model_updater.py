@@ -48,7 +48,7 @@ class ModelUpdater:
         # 1) Parameter count
         total_params = sum(p.numel() for p in model.pt_model.parameters())
         if not (total_params <= constraints.max_params):
-            logging.debug(f"{model.id.name} parameter count {total_params} outside [{constraints.max_params}]")
+            logging.debug(f"{model.id.name} parameter count {total_params} outside of [{constraints.max_params}]")
             return False
 
         # 2) Allowed architectures
@@ -97,11 +97,11 @@ class ModelUpdater:
             raise MinerMisconfiguredError(hotkey, f"Failed to get metadata: {e}") from e
 
         # 2) Find the competition at upload and at current block
-        comp_at_upload = competition_utils.get_competition_schedule_for_block(
-            metadata.block, schedule
+        comp_at_upload = competition_utils.get_competition_for_block(
+            metadata.id.competition_id, metadata.block, schedule
         )
-        comp_now = competition_utils.get_competition_schedule_for_block(
-            curr_block, schedule
+        comp_now = competition_utils.get_competition_for_block(
+            metadata.id.competition_id, curr_block, schedule
         )
         if comp_at_upload is None or comp_now is None:
             raise MinerMisconfiguredError(

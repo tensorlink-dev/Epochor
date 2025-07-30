@@ -333,8 +333,8 @@ class ModelManager:
                     is_queued_for_eval = next_uid in self.state.get_pending_uids_to_eval(model_metadata.id.competition_id) or \
                                          next_uid in self.state.get_uids_to_eval(model_metadata.id.competition_id)
 
-                    competition = competition_utils.get_competition_schedule_for_block(
-                      #  model_metadata.id.competition_id,
+                    competition = competition_utils.get_competition_for_block(
+                        model_metadata.id.competition_id,
                         curr_block,
                         competitions.COMPETITION_SCHEDULE_BY_BLOCK,
                     )
