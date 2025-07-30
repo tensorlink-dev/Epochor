@@ -1,3 +1,4 @@
+
 """A script that registers a model from Hugging Face to the subnet for evaluation.
 
 Usage:
@@ -109,8 +110,8 @@ async def main(config: bt.config):
     # Push the model to the subnet.
     await mining.register(
         wallet,
-        config.hf_repo_id,
-        commit_hash,
+        repo_id=config.hf_repo_id,
+        commit=commit_hash,
         competition_id=config.competition_id,
         metadata_store=chain_metadata_store,
         netuid=config.netuid,
