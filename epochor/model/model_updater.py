@@ -109,11 +109,11 @@ class ModelUpdater:
                 f"Competition {metadata.id.competition_id} not active at block {metadata.block if comp_at_upload is None else curr_block}"
             )
 
-        # 3) Respect evaluation delay
-        delay = comp_now.constraints.eval_block_delay
-        if curr_block - metadata.block < delay:
-            logging.info(f"{hotkey} waiting for eval delay ({delay} blocks)")
-            return False
+        # 3) Respect evaluation delay - not sure if I need this? QUERY
+        #delay = comp_now.constraints.eval_block_delay
+        #if curr_block - metadata.block < delay:
+        #    logging.info(f"{hotkey} waiting for eval delay ({delay} blocks)")
+        #    return False
 
         # 4) Skip if metadata unchanged and not forced
         tracked = self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
