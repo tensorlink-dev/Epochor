@@ -98,10 +98,10 @@ class ModelUpdater:
 
         # 2) Find the competition at upload and at current block
         comp_at_upload = competition_utils.get_competition_schedule_for_block(
-            metadata.id.competition_id, metadata.block, schedule
+            metadata.block, schedule
         )
         comp_now = competition_utils.get_competition_schedule_for_block(
-            metadata.id.competition_id, curr_block, schedule
+            curr_block, schedule
         )
         if comp_at_upload is None or comp_now is None:
             raise MinerMisconfiguredError(
