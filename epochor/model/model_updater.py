@@ -4,7 +4,7 @@ import os
 from typing import List, Optional, Tuple
 
 import logging
-from epochor.utils import misc as competition_utils
+from epochor.utils import competition_utils
 from epochor.model.model_constraints import Competition, ModelConstraints, MODEL_CONSTRAINTS_BY_COMPETITION_ID
 from epochor.model.model_data import Model, ModelId, ModelMetadata
 from epochor.model.model_tracker import ModelTracker
