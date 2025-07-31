@@ -41,4 +41,5 @@ def hash_directory(path: str) -> str:
 
 def get_hash_of_two_strings(str1: str, str2: str) -> str:
     """Returns the sha256 hash of two strings."""
-    return hashlib.sha256((str1 + str2).encode()).hexdigest()
+    string_hash = hashlib.sha256((str1 + str2).encode())
+    return base64.b64encode(string_hash.digest()).decode("utf-8")
