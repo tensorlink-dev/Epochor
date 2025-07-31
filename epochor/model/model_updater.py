@@ -47,8 +47,8 @@ class ModelUpdater:
 
         # 1) Parameter count
         total_params = sum(p.numel() for p in model.model.parameters())
-        if not (total_params <= constraints.max_params):
-            logging.debug(f"{model.id.name} parameter count {total_params} outside of [{constraints.max_params}]")
+        if not (total_params <= constraints.max_model_parameters):
+            logging.debug(f"{model.id.name} parameter count {total_params} outside of [{constraints.max_model_parameters}]")
             return False
 
         # 2) Allowed architectures
