@@ -1,8 +1,15 @@
-
-"""A script that registers a model from Hugging Face to the subnet for evaluation.
+#!/usr/bin/env python3
+"""
+A script that registers a model from Hugging Face to the subnet for evaluation—
+and also computes the same secure hash that our HF-store would generate.
 
 Usage:
-    python scripts/register_hf_model.py --hf_repo_id <your-hf-repo-id> --competition_id <competition_id> --wallet.name <coldkey> --wallet.hotkey <hotkey>
+    python scripts/register_hf_model.py \
+      --hf_repo_id <your-hf-repo-id> \
+      --competition_id <competition_id> \
+      --wallet.name <coldkey> \
+      --wallet.hotkey <hotkey> \
+      [--revision <branch-or-tag-or-commit>]
 
 Prerequisites:
    1. HF_ACCESS_TOKEN is set in the environment or .env file.
@@ -13,41 +20,39 @@ Prerequisites:
 import asyncio
 import os
 import argparse
+import tempfile
+import logging
+
 import bittensor as bt
 from dotenv import load_dotenv
-from huggingface_hub import HfApi
+from huggingface_hub import HfApi, snapshot_download
+
+from epochor.utils.hashing import hash_directory
+from epochor.utils import metagraph_utils, logging as epo_logging
+from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
 import epochor.mining as mining
 import constants
-from epochor.utils import metagraph_utils
-
-from epochor.utils import logging
 from constants import CompetitionId
 
-
-from epochor.model.storage.hf_model_store import HuggingFaceModelStore
-from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
-
-
-from enum import IntEnum
-
-# Load environment variables from .env file.
+# Load .env and silence tokenizer warnings
 load_dotenv()
-
-# Set TOKENIZERS_PARALLELISM to true to avoid warnings.
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 
-
 def get_config() -> bt.config:
-    """
-    Initializes an argument parser and returns the parsed arguments.
-    """
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
         "--hf_repo_id",
         type=str,
-        help="The Hugging Face repo id, which should include the org/user and repo name. E.g. my-username/my-model",
+        required=True,
+        help="The HF repo id (e.g. my-user/my-model).",
+    )
+    parser.add_argument(
+        "--revision",
+        type=str,
+        default=None,
+        help="Branch, tag or SHA.  Defaults to latest on default branch.",
     )
     parser.add_argument(
         "--netuid",
@@ -60,69 +65,78 @@ def get_config() -> bt.config:
         type=int,
         choices=[c.value for c in CompetitionId],
         required=True,
-        help="The competition to upload the model for.",
+        help="Competition to register under.",
     )
     parser.add_argument(
         "--list_competitions",
         action="store_true",
-        help="Print out all available competitions and their IDs.",
+        help="Print available competitions & exit.",
     )
 
-    # Add Bittensor wallet, subtensor, and logging arguments
     bt.wallet.add_args(parser)
     bt.subtensor.add_args(parser)
     bt.logging.add_args(parser)
 
-    config = bt.config(parser)
-    return config
+    return bt.config(parser)
 
 
 async def main(config: bt.config):
-    """
-    Main function to handle model upload.
-    """
-    # Initialize Bittensor objects.
+    # — initialize logging & objects
     bt.logging(config=config)
-    logging.reinitialize_logging()
-    logging.configure_logging(config)
+    epo_logging.reinitialize_logging()
+    epo_logging.configure_logging(config)
 
-    wallet = bt.wallet(config=config)
+    wallet    = bt.wallet(config=config)
     subtensor = bt.subtensor(config=config)
     metagraph = subtensor.metagraph(config.netuid)
 
-    # Convert the integer competition_id to the CompetitionId enum.
-    config.competition_id = CompetitionId(config.competition_id)
-    
-    chain_metadata_store = ChainModelMetadataStore(
+    metagraph_utils.assert_registered(wallet, metagraph)
+
+    # — resolve commit SHA on HF —
+    hf_api = HfApi(token=os.environ.get("HF_ACCESS_TOKEN"))
+    repo_info = hf_api.repo_info(
+        repo_id=config.hf_repo_id,
+        token=os.environ.get("HF_ACCESS_TOKEN"),
+        revision=config.revision,
+    )
+    commit_hash = repo_info.sha
+    logging.info(f"Using commit {commit_hash} on {config.hf_repo_id}")
+
+    # — compute secure hash exactly as upload_model would —
+    with tempfile.TemporaryDirectory() as tmpdir:
+        local_tree = snapshot_download(
+            repo_id=config.hf_repo_id,
+            revision=commit_hash,
+            cache_dir=tmpdir,
+            token=os.environ.get("HF_ACCESS_TOKEN"),
+        )
+        secure_hash = hash_directory(local_tree)
+    logging.info(f"Computed secure hash: {secure_hash}")
+
+    # — prepare on-chain metadata store & register —
+    chain_store = ChainModelMetadataStore(
         subtensor=subtensor,
         subnet_uid=config.netuid,
         wallet=wallet,
     )
 
-    # Ensure the miner is registered and has a Hugging Face token.
-    metagraph_utils.assert_registered(wallet, metagraph)
-    
-    # Get the HF Repo Information
-    hf_api = HfApi()
-    repo_info = hf_api.repo_info(repo_id=config.hf_repo_id, token=os.environ.get("HF_ACCESS_TOKEN"))
-    commit_hash = repo_info.sha
-
-    # Push the model to the subnet.
     await mining.register(
-        wallet,
+        wallet=wallet,
         repo_id=config.hf_repo_id,
         commit_hash=commit_hash,
-        competition_id=config.competition_id,
-        metadata_store=chain_metadata_store,
+        # pass the secure hash into the metadata layer:
+        metadata_store=chain_store,
+        competition_id=CompetitionId(config.competition_id),
         netuid=config.netuid,
         subtensor=subtensor,
+        secure_hash=secure_hash,       # ← ensure your register fn accepts this!
     )
 
 
 if __name__ == "__main__":
-    config = get_config()
-    if config.list_competitions:
+    cfg = get_config()
+    if cfg.list_competitions:
         print(constants.COMPETITION_SCHEDULE_BY_BLOCK)
     else:
-        print(config)
-        asyncio.run(main(config))
+        print(cfg)
+        asyncio.run(main(cfg))
