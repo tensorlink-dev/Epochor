@@ -154,6 +154,7 @@ async def push(
         )
         logging.info("Model set to public")
 
+
 async def register(
     wallet: bt.wallet,
     repo_id: str,
@@ -161,23 +162,14 @@ async def register(
     competition_id: CompetitionId,
     retry_delay_secs: int = 60,
     metadata_store: Optional[ModelMetadataStore] = None,
-    netuid: int = constants.SUBNET_UID,
+    netuid: int = SUBNET_UID,
     subtensor: bt.subtensor = None,
 ):
-    """Registers a Hugging Face model to the subnet without uploading it.
-
-    Args:
-        wallet (bt.wallet): The wallet of the Miner registering the model.
-        repo_id (str): The Hugging Face repo ID.
-        commit_hash (str): The commit hash of the model on Hugging Face.
-        competition_id (CompetitionId): The competition the miner is participating in.
-        retry_delay_secs (int): The number of seconds to wait before retrying to push the model to the chain.
-        metadata_store (Optional[ModelMetadataStore]): The metadata store. If None, defaults to writing to the
-            chain.
-        netuid (int): The subnet UID.
-        subtensor (bt.subtensor): The subtensor object.
     """
-    logging.info("Registering model")
+    Registers a Hugging Face model to the subnet without uploading it,
+    and computes the secure directory hash exactly as our HF‐store does.
+    """
+    logger.info("Starting on-chain registration for %s@%s", repo_id, commit_hash)
 
     if subtensor is None:
         subtensor = bt.subtensor()
@@ -187,7 +179,8 @@ async def register(
             subtensor=subtensor, subnet_uid=netuid, wallet=wallet
         )
 
-    namespace, name = model_utils.validate_hf_repo_id(repo_id)
+    # 1) Build the base ModelId with just namespace/name/commit
+    namespace, name = repo_id.split("/", 1)
     model_id = ModelId(
         namespace=namespace,
         name=name,
@@ -195,47 +188,47 @@ async def register(
         competition_id=competition_id,
     )
 
-    secure_hash = get_hash_of_two_strings(model_id.hash, wallet.hotkey.ss58_address)
+    # 2) Pull down that exact tree and compute secure_hash
+    with tempfile.TemporaryDirectory() as tmpdir:
+        local_path = snapshot_download(
+            repo_id=repo_id,
+            revision=commit_hash,
+            cache_dir=tmpdir,
+            token=os.getenv("HF_ACCESS_TOKEN"),
+        )
+        secure_hash = hash_directory(local_path)
+    logger.info("Computed secure_hash=%s for %s@%s", secure_hash, repo_id, commit_hash)
+
+    # 3) Embed that into the ModelId
     model_id = replace(model_id, secure_hash=secure_hash)
 
-    logging.info(f"Now committing to the chain with model_id: {model_id}")
+    logger.info("Final model_id to store: %s", model_id.to_compressed_str())
 
+    # 4) Store on chain (with retry on failures)
     while True:
         try:
             await metadata_store.store_model_metadata(
                 wallet.hotkey.ss58_address, model_id
             )
 
-            logging.info(
-                "Wrote model metadata to the chain. Checking we can read it back..."
-            )
-
+            # verify readback
             uid = subtensor.get_uid_for_hotkey_on_subnet(
                 wallet.hotkey.ss58_address, netuid
             )
-
-            model_metadata = await metadata_store.retrieve_model_metadata(
+            readback = await metadata_store.retrieve_model_metadata(
                 uid, wallet.hotkey.ss58_address
             )
 
-            if (
-                not model_metadata
-                or model_metadata.id.to_compressed_str() != model_id.to_compressed_str()
-            ):
-                logging.error(
-                    f"Failed to read back model metadata from the chain. Expected: {model_id}, got: {model_metadata}"
-                )
-                raise ValueError(
-                    f"Failed to read back model metadata from the chain. Expected: {model_id}, got: {model_metadata}"
-                )
+            if not readback or readback.id.to_compressed_str() != model_id.to_compressed_str():
+                raise RuntimeError(f"Readback mismatch: expected={model_id}, got={readback}")
 
-            logging.info("Committed model to the chain.")
+            logger.info("Successfully registered model on chain.")
             break
-        except Exception as e:
-            logging.error(f"Failed to advertise model on the chain: {e}")
-            logging.error(f"Retrying in {retry_delay_secs} seconds...")
-            time.sleep(retry_delay_secs)
 
+        except Exception as e:
+            logger.error("Failed to register on chain: %s", e)
+            logger.info("Retrying in %d seconds...", retry_delay_secs)
+            time.sleep(retry_delay_secs)
 
 def save(model:  BaseTemporalModel, model_dir: str):
     """Saves a model to the provided directory"""
