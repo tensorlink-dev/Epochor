@@ -39,7 +39,7 @@ from epochor.model.storage.hf_model_store import HuggingFaceModelStore
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
 from temporal.utils.hf_accessors import save_hf, load_hf
 from temporal.models.base_model import  BaseTemporalModel
-logger = logging.getLogger(__name__)
+
 
 def model_path(base_dir: str, run_id: str) -> str:
     """
@@ -225,7 +225,7 @@ async def register(
             if not readback or readback.id.to_compressed_str() != model_id.to_compressed_str():
                 raise RuntimeError(f"Readback mismatch: expected={model_id}, got={readback}")
 
-            logger.info("Successfully registered model on chain.")
+            logging.info("Successfully registered model on chain.")
             break
 
         except Exception as e:
