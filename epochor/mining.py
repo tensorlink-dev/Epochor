@@ -191,6 +191,7 @@ async def register(
     model_id = ModelId(
         namespace=namespace,
         name=name,
+        commit=commit_hash,
         hash=commit_hash,
         competition_id=competition_id,
     )
