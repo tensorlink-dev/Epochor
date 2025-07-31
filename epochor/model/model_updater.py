@@ -127,7 +127,7 @@ class ModelUpdater:
             raise MinerMisconfiguredError(hotkey, f"Failed to download model: {e}") from e
 
         # 6) Record in tracker (even if validation fails)
-        self.model_tracker.on_miner_model_updated(hotkey, metadata)
+        self.model_tracker.on_model_updated(hotkey, metadata)
 
         # 7) Optional hash check
         if metadata.id.hash:
