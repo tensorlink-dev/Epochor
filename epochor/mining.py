@@ -162,7 +162,7 @@ async def register(
     competition_id: CompetitionId,
     retry_delay_secs: int = 60,
     metadata_store: Optional[ModelMetadataStore] = None,
-    netuid: int = SUBNET_UID,
+    netuid: int = None,
     subtensor: bt.subtensor = None,
 ):
     """
