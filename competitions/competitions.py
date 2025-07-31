@@ -14,7 +14,6 @@ from constants import CompetitionId, BATCH_SIZE
 from epochor.model.model_constraints import Competition, EvalTask, EvalMethodId, DatasetId, NormalizationId, MODEL_CONSTRAINTS_BY_COMPETITION_ID
 
 # BATCH_SIZE and PAGES_PER_EVAL_FINEWEB are not defined in constants, so I will define them here.
-PAGES_PER_EVAL_UNIV = 1
 COMPETITION_SCHEDULE_BY_BLOCK: Dict[int, List[Competition]] = {
     0: [
         Competition(
@@ -25,11 +24,11 @@ COMPETITION_SCHEDULE_BY_BLOCK: Dict[int, List[Competition]] = {
                 EvalTask(
                     name="SYNTHETIC-V1",
                     method_id=EvalMethodId.CRPS_LOSS,
-                    dataset_id=DatasetId.UNIVARIATE_SYNTHETIC,
+                    dataset_id=0 ,
                     normalization_id=NormalizationId.NONE,
                     dataset_kwargs={
-                        "batch_size": BATCH_SIZE,
-                        "num_pages": PAGES_PER_EVAL_UNIV,
+                        "batch_size": 32,
+                        "num_pages": 1,
                     },
                     weight=1.00,
                 )
