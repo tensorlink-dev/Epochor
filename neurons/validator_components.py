@@ -234,8 +234,8 @@ class ValidatorState:
     def update_ema_scores(self, scores_for_ema: EpsilonFunc, competition_id: int):
         self.ema_tracker.update(scores_for_ema, competition_id=competition_id)
 
-    def reset_ema_uid(self, competition_id: int, uid: int):
-        self.ema_tracker.reset_uid(competition_id=competition_id, uid=uid)
+    def reset_ema_uid(self,uid: int):
+        self.ema_tracker.reset_uid( uid=uid)
 
     def reset_ema_hotkey_score(self, hotkey: str):
         self.ema_tracker.reset_score_for_hotkey(hotkey=hotkey)
@@ -394,7 +394,7 @@ class ModelManager:
                             f"Failed to find metadata for uid {next_uid} with hotkey {hotkey}"
                         )
                     # inside the `if updated:` block, after you know this `uid` got a fresh model
-                    self.state.reset_ema_uid(metadata.id.competition_id, next_uid)
+                    self.state.reset_ema_uid(next_uid)
 
             except Exception as e:
                 bt.logging.error(f"Error in update loop: {e} :{traceback.format_exc()}")
