@@ -111,7 +111,7 @@ async def main(config: bt.config):
     await mining.register(
         wallet,
         repo_id=config.hf_repo_id,
-        commit=commit_hash,
+        commit_hash=commit_hash,
         competition_id=config.competition_id,
         metadata_store=chain_metadata_store,
         netuid=config.netuid,
