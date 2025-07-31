@@ -26,7 +26,7 @@ from epochor.model.storage.metadata_model_store import (
 from epochor.model.base_metadata_model_store import ModelMetadataStore
 
 import constants
-from constants import CompetitionId
+from competitions.competitions import CompetitionId # Updated import
 
 def best_uid(
     competition_id: CompetitionId,

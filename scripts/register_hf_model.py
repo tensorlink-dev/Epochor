@@ -32,7 +32,7 @@ from epochor.utils import metagraph_utils, logging as epo_logging
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
 import epochor.mining as mining
 import constants
-from constants import CompetitionId
+from competitions.competitions import CompetitionId # Updated import
 
 # Load .env and silence tokenizer warnings
 load_dotenv()
@@ -136,7 +136,10 @@ async def main(config: bt.config):
 if __name__ == "__main__":
     cfg = get_config()
     if cfg.list_competitions:
-        print(constants.COMPETITION_SCHEDULE_BY_BLOCK)
+        # No longer using constants.COMPETITION_SCHEDULE_BY_BLOCK here directly
+        # Instead, you might want to fetch it from competitions.competitions if needed
+        print("List of competitions is not directly available via constants.COMPETITION_SCHEDULE_BY_BLOCK anymore.")
+        print("Please refer to competitions/competitions.py for competition definitions.")
     else:
         print(cfg)
         asyncio.run(main(cfg))

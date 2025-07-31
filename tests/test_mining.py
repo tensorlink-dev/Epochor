@@ -6,13 +6,13 @@ import pytest
 from epochor import mining
 from epochor.model.model_data import ModelId
 from tests.helpers import DummyModel, FakeModelMetadataStore
-from constants import CompetitionId
+from competitions.competitions import CompetitionId # Updated import
 import constants
 from temporal.configs.transformer_config import TransformerTimeSeriesConfig
 from epochor.model.model_constraints import MODEL_CONSTRAINTS_BY_COMPETITION_ID
 
 # Mark all tests in this file as asyncio
-pytestmark = pytest.mark.asyncio
+pytestmark = pytest asycio
 
 @pytest.fixture
 def dummy_model_with_config():

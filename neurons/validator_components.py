@@ -27,7 +27,7 @@ from epochor.model.model_updater import MinerMisconfiguredError
 from epochor.model.model_data import EvalResult
 from competitions.epsilon import EpsilonFunc
 from epochor.utils import metagraph_utils
-from constants import CompetitionId
+from competitions.competitions import CompetitionId # Updated import
 from epochor.utils import competition_utils
 from epochor.model.storage.disk_model_store import DiskModelStore # Import DiskModelStore
 from competitions import competitions 

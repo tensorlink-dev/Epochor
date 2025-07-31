@@ -25,7 +25,8 @@ from epochor.model.storage.hugging_face.hugging_face_model_store import (
     HuggingFaceModelStore,
 )
 from epochor.utils import utils as epochor_utils
-from epochor.competition.data import CompetitionId, IntEnumAction
+from competitions.competitions import CompetitionId # Updated import
+from competitions.data import IntEnumAction # Assuming IntEnumAction is also in competitions.data or can be moved there if needed
 
 
 # Load environment variables from .env file.
@@ -127,7 +128,10 @@ async def main(config: bt.config):
 if __name__ == "__main__":
     config = get_config()
     if config.list_competitions:
-        print(constants.COMPETITION_SCHEDULE_BY_BLOCK)
+        # No longer using constants.COMPETITION_SCHEDULE_BY_BLOCK here directly
+        # Instead, you might want to fetch it from competitions.competitions if needed
+        print("List of competitions is not directly available via constants.COMPETITION_SCHEDULE_BY_BLOCK anymore.")
+        print("Please refer to competitions/competitions.py for competition definitions.")
     else:
         print(config)
         asyncio.run(main(config))

@@ -8,7 +8,7 @@ from neurons.validator import Validator
 from epochor.validation.validation import ScoreDetails
 from epochor.model.model_data import ModelId, ModelMetadata
 from epochor.model.model_constraints import Competition
-from constants import CompetitionId
+from competitions.competitions import CompetitionId # Updated import
 from tests.helpers import DummyModel, DummyConfig
 
 # Mark all tests in this file as asyncio

@@ -5,7 +5,8 @@ from temporal.models.builder import build_time_series_transformer as model_cls
 from temporal.configs.transformer_config import  TransformerTimeSeriesConfig as config_cls
 from temporal.models.base_model import  BaseTemporalModel as model_type
 
-from enum import IntEnum
+from competitions.competitions import CompetitionId # Updated import
+from enum import IntEnum # Keep IntEnum for other enums if they are still local
 
 class ModelConstraints(BaseModel):
     """
@@ -48,7 +49,7 @@ class Competition:
 
     # Unique ID for this competition.
     # Recommend making an IntEnum for use in the subnet codebase.
-    id: int
+    id: CompetitionId # Changed type hint to use imported CompetitionId
 
     # All restrictions on models allowed in this competition.
     constraints: ModelConstraints
@@ -60,7 +61,7 @@ class Competition:
     eval_tasks: List[EvalTask] = field(default_factory=list)
 
 # Mapping from CompetitionId to the constraints for each competition.
-MODEL_CONSTRAINTS_BY_COMPETITION_ID: Dict[int, ModelConstraints] = {
-    0: ModelConstraints(),
+MODEL_CONSTRAINTS_BY_COMPETITION_ID: Dict[CompetitionId, ModelConstraints] = {
+    CompetitionId.UNIVARIATE: ModelConstraints(),
     # CompetitionId.CUSTOM_TRACK_1: ModelConstraints(max_model_size_bytes=20 * 1024 * 1024),
 }

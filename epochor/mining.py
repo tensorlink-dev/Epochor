@@ -25,7 +25,7 @@ import bittensor as bt
 import huggingface_hub
 import torch
 
-from constants import CompetitionId
+from competitions.competitions import CompetitionId # Updated import
 from epochor.model.model_constraints import Competition, MODEL_CONSTRAINTS_BY_COMPETITION_ID
 from epochor.utils import logging
 import constants
@@ -90,7 +90,7 @@ async def push(
     if not model_constraints:
         raise ValueError("Invalid competition_id")
 
-    # First upload the model to HuggingFace.
+    # First upload the model to Hugging Face.
     namespace, name = model_utils.validate_hf_repo_id(repo)
     model_id = ModelId(namespace=namespace, name=name, competition_id=competition_id)
 
@@ -270,7 +270,7 @@ async def get_repo(
 
 
 def load_local_model(
-    model_dir: str, competition_id: str
+    model_dir: str, competition_id: CompetitionId # Updated type hint to use CompetitionId directly
 ) -> Union[BaseTemporalModel, "torch.nn.Module"]:
     """Loads a model from a directory."""
     model_constraints = MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
@@ -324,7 +324,7 @@ async def load_remote_model(
         raise ValueError(f"No model metadata found for miner {uid}")
 
     model_constraints = MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
-        model_metadata.id._competition_id, None
+        model_metadata.id.competition_id, None # Changed from _competition_id to competition_id
     )
 
     if not model_constraints:
