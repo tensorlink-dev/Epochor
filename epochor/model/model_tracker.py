@@ -1,6 +1,7 @@
 from typing import Dict, Optional, List
 import pickle
 import threading
+import logging
 
 from epochor.model.model_data import ModelMetadata, EvalResult
 
@@ -22,6 +23,28 @@ class ModelTracker:
             for hotkey in list(self.miner_hotkey_to_eval_results.keys()):
                 if hotkey not in hotkeys:
                     del self.miner_hotkey_to_eval_results[hotkey]
+
+    def on_model_updated(
+        self,
+        hotkey: str,
+        model_metadata: ModelMetadata,
+    ) -> None:
+        """Notifies the tracker that a miner has had their associated model updated.
+
+        Args:
+            hotkey (str): The miner's hotkey.
+            model_metadata (ModelMetadata): The latest model metadata of the miner.
+        """
+        with self.lock:
+            prev_metadata = self.miner_hotkey_to_model_metadata.get(hotkey, None)
+            self.miner_hotkey_to_model_metadata[hotkey] = model_metadata
+
+            # If the model was updated, clear the evaluation results since they're no
+            # longer relevant.
+            if prev_metadata != model_metadata:
+                if hotkey in self.miner_hotkey_to_eval_results:
+                    self.miner_hotkey_to_eval_results[hotkey].clear()
+
 
     def on_model_downloaded(self, hotkey: str, metadata: ModelMetadata):
         """Called when a new model is downloaded for a specific miner."""
