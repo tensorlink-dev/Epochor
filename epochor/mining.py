@@ -25,7 +25,7 @@ import bittensor as bt
 import huggingface_hub
 import torch
 
-from competitions.competitions import CompetitionId # Updated import
+from competitions import CompetitionId # Updated import
 from epochor.model.model_constraints import Competition, MODEL_CONSTRAINTS_BY_COMPETITION_ID
 from epochor.utils import logging
 import constants
