@@ -171,7 +171,7 @@ async def register(
     Registers a Hugging Face model to the subnet without uploading it,
     and computes the secure directory hash exactly as our HF‐store does.
     """
-    logger.info("Starting on-chain registration for %s@%s", repo_id, commit_hash)
+    logging.info("Starting on-chain registration for %s@%s", repo_id, commit_hash)
 
     if subtensor is None:
         subtensor = bt.subtensor()
@@ -200,12 +200,12 @@ async def register(
                 token=os.getenv("HF_ACCESS_TOKEN"),
             )
             secure_hash = hash_directory(tree_path)
-        logger.info("Computed secure_hash=%s for %s@%s", secure_hash, repo_id, commit_hash)
+        logging.info("Computed secure_hash=%s for %s@%s", secure_hash, repo_id, commit_hash)
 
     # 3) Embed that into the ModelId
     model_id = replace(model_id, secure_hash=secure_hash)
 
-    logger.info("Final model_id to store: %s", model_id.to_compressed_str())
+    logging.info("Final model_id to store: %s", model_id.to_compressed_str())
 
     # 4) Store on chain (with retry on failures)
     while True:
@@ -229,8 +229,8 @@ async def register(
             break
 
         except Exception as e:
-            logger.error("Failed to register on chain: %s", e)
-            logger.info("Retrying in %d seconds...", retry_delay_secs)
+            logging.error("Failed to register on chain: %s", e)
+            logging.info("Retrying in %d seconds...", retry_delay_secs)
             time.sleep(retry_delay_secs)
 
 def save(model:  BaseTemporalModel, model_dir: str):
