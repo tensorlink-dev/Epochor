@@ -3,6 +3,7 @@ from typing import Type, Dict, List
 from dataclasses import dataclass, field
 from temporal.models.builder import build_time_series_transformer as model_cls
 from temporal.configs.transformer_config import  TransformerTimeSeriesConfig as config_cls
+from temporal.models.base_model import  BaseTemporalModel as model_type
 
 from enum import IntEnum
 
@@ -21,6 +22,7 @@ class ModelConstraints(BaseModel):
     # Placeholder for the model and config classes from the temporal package
     model_cls: Type = Field(default=model_cls)
     config_cls: Type = Field(default=config_cls)
+    model_type: Type=  Field(default=model_type)
 
 class EvalMethodId(IntEnum):
     CRPS_LOSS = 0

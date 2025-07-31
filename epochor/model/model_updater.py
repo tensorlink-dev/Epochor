@@ -1,7 +1,7 @@
 # epochor/validator/model_updater.py
 
 import os
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import logging
 from epochor.utils import competition_utils
@@ -51,8 +51,7 @@ class ModelUpdater:
             logging.debug(f"{model.id.name} parameter count {total_params} outside of [{constraints.max_model_parameters}]")
             return False
 
-        # 2) Allowed architectures
-        if type(model.model) not in constraints.model_cls:
+        if not isinstance(model.model,constraints.model_type):
             logging.debug(f"{type(model.model)} not in allowed model classes")
             return False
 
@@ -128,7 +127,7 @@ class ModelUpdater:
             raise MinerMisconfiguredError(hotkey, f"Failed to download model: {e}") from e
 
         # 6) Record in tracker (even if validation fails)
-        self.model_tracker.on_model_updated(hotkey, metadata)
+        self.model_tracker.on_miner_model_updated(hotkey, metadata)
 
         # 7) Optional hash check
         if metadata.id.hash:
