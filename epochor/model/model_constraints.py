@@ -1,8 +1,9 @@
 from pydantic import BaseModel, Field
 from typing import Type, Dict, List
 from dataclasses import dataclass, field
-from temporal.models.transformer_model import  TransformerTemporalModel as model_cls 
+from temporal.models.builder import build_time_series_transformer as model_cls
 from temporal.configs.transformer_config import  TransformerTimeSeriesConfig as config_cls
+
 from enum import IntEnum
 
 class ModelConstraints(BaseModel):
