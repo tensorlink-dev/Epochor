@@ -152,6 +152,19 @@ class CompetitionEMATracker:
             if key not in competition_ids:
                 del self.competition_weights[key]
 
+    def reset_uid(self, uid: int):
+        """
+        Zero out all scores for a given UID.
+        """
+        # 1. Reset EMA scores
+        for tracker in self.trackers.values():
+            if uid in tracker.ema_scores:
+                tracker.ema_scores[uid] = 0.0
+
+        # 2. Reset raw scores
+        for comp_dict in self.raw_scores.values():
+            if uid in comp_dict:
+                comp_dict[uid] = 0.0
 
     def reset_score_for_hotkey(self, hotkey: str):
         """
@@ -160,14 +173,9 @@ class CompetitionEMATracker:
         uid = self.hotkey_to_uid.get(hotkey)
         if uid is None:
             return
+        
+        self.reset_uid(uid)
 
-        # EMA reset
-        for tracker in self.trackers.values():
-            tracker.reset_score(uid)
-
-        # raw reset
-        for comp_dict in self.raw_scores.values():
-            comp_dict.pop(uid, None)
 
     def get_combined_scores(self, block: int, uids: list[int]) -> Dict[int, float]:
         """
