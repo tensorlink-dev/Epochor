@@ -39,6 +39,7 @@ from epochor.model.storage.hf_model_store import HuggingFaceModelStore
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
 from temporal.utils.hf_accessors import save_hf, load_hf
 from temporal.models.base_model import  BaseTemporalModel
+logger = logging.getLogger(__name__)
 
 def model_path(base_dir: str, run_id: str) -> str:
     """
