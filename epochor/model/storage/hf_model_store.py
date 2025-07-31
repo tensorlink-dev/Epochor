@@ -16,6 +16,8 @@ from epochor.model.model_constraints import ModelConstraints
 from epochor.model.model_updater import MinerMisconfiguredError
 from temporal.utils.hf_accessors import save_hf, load_hf
 from epochor.utils.hashing import hash_directory
+from dotenv import load_dotenv
+load_dotenv()   # <-- populates os.environ from .env
 
 
 logger = logging.getLogger(__name__)
