@@ -1,266 +1,243 @@
-import collections
-import pickle
-import typing
-from typing import Dict, Any, Optional
+from __future__ import annotations
+import threading
+import json
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Dict, Optional, Protocol, List, Any, Union, Set
 import torch
 from epochor.model.model_constraints import Competition
-
 from competitions.competitions import get_current_competition
 
+class WeightSource(Protocol):
+    def __call__(self, block: int) -> Dict[int, float]:
+        ...
 
+@dataclass
+class RawData:
+    score: Union[float, Dict[str, float], Any]
+    block: int
+
+@dataclass
 class EMATracker:
-    """
-    Tracks an Exponential Moving Average (EMA) for scores associated with UIDs.
-    """
+    alpha: float = 0.2
+    _scores: Dict[int, float] = field(default_factory=dict)
 
-    def __init__(self, alpha: float = 0.2):
-        if not 0.0 <= alpha <= 1.0:
-            raise ValueError("Alpha must be between 0 and 1.")
-        self.alpha = alpha
-        self.ema_scores: Dict[int, float] = collections.defaultdict(float)
-        self.initialized: Dict[int, bool] = collections.defaultdict(bool)
-
-    def update(self, uid: int, score: float):
-        if not self.initialized[uid]:
-            # first observation
-            self.ema_scores[uid] = score
-            self.initialized[uid] = True
-        else:
-            self.ema_scores[uid] = (
-                self.alpha * score + (1.0 - self.alpha) * self.ema_scores[uid]
-            )
+    def update(self, uid: int, score: float) -> None:
+        prev = self._scores.get(uid)
+        self._scores[uid] = score if prev is None else self.alpha * score + (1 - self.alpha) * prev
 
     def get(self, uid: int) -> float:
-        return self.ema_scores.get(uid, 0.0)
+        return self._scores.get(uid, 0.0)
 
-    def get_all_scores(self) -> Dict[int, float]:
-        return dict(self.ema_scores)
+    def get_all(self) -> Dict[int, float]:
+        return dict(self._scores)
 
-    def set_alpha(self, new_alpha: float):
-        if not 0.0 <= new_alpha <= 1.0:
+    def reset(self, uid: int) -> None:
+        self._scores.pop(uid, None)
+
+    def set_alpha(self, new_alpha: float) -> None:
+        if not (0.0 <= new_alpha <= 1.0):
             raise ValueError("Alpha must be between 0 and 1.")
         self.alpha = new_alpha
 
-    def reset_score(self, uid: int):
-        self.ema_scores[uid] = 0.0
-
+@dataclass
+class CompetitionData:
+    ema: EMATracker = field(default_factory=EMATracker)
+    raw: Dict[int, RawData] = field(default_factory=dict)
+    weights: torch.Tensor = field(default_factory=lambda: torch.tensor([], dtype=torch.float32))
+    last_updated_block: Optional[int] = None
 
 class CompetitionEMATracker:
     """
-    Manages one EMATracker per competition, plus raw-score history and hotkey mappings.
+    Thread-safe replacement for CompetitionEMATracker.
+    Tracks per-competition EMA, raw scores (with block), weight tensors, and hotkeys.
     """
 
-    def __init__(self, num_neurons: int, default_alpha: float = 0.2):
+    def __init__(self, num_neurons: int, weight_source: WeightSource = get_current_competition):
         self.num_neurons = num_neurons
-        self.default_alpha = default_alpha
-        # comp_id -> EMATracker
-        self.trackers: Dict[Any, EMATracker] = {}
-        # comp_id -> { uid -> last raw score }
-        self.raw_scores: Dict[Any, Dict[int, float]] = collections.defaultdict(dict)
-        # UID <-> hotkey
-        self.uid_to_hotkey: Dict[int, str] = {}
-        self.hotkey_to_uid: Dict[str, int] = {}
-        self.competition_weights: Dict[int, torch.Tensor] = {}
+        self.weight_source = weight_source
 
-    def _get_or_create_tracker(self, competition_id: Any) -> EMATracker:
-        if competition_id not in self.trackers:
-            self.trackers[competition_id] = EMATracker(alpha=self.default_alpha)
-        return self.trackers[competition_id]
+        self._data: Dict[int, CompetitionData] = {}
+        self._uid_to_hotkey: Dict[int, str] = {}
+        self._hotkey_to_uid: Dict[str, int] = {}
+
+        self._lock = threading.RLock()
+
+    def _comp(self, comp_id: int) -> CompetitionData:
+        return self._data.setdefault(comp_id, CompetitionData())
 
     def update(
         self,
-        competition_id: Any,
+        comp_id: int,
         uid: int,
-        score: float,
+        score: Union[float, Dict[str, float], Any],
+        block: int,
         hotkey: Optional[str] = None
-    ):
-        """
-        1) Update the EMA for this (comp_id, uid).
-        2) Store the raw score for diagnostics.
-        3) Update UID↔hotkey mapping if provided.
-        """
-        # EMA update
-        tracker = self._get_or_create_tracker(competition_id)
-        tracker.update(uid, score)
+    ) -> None:
+        with self._lock:
+            cd = self._comp(comp_id)
+            if isinstance(score, (int, float)):
+                cd.ema.update(uid, float(score))
+            cd.raw[uid] = RawData(score=score, block=block)
+            cd.last_updated_block = block
 
-        # raw score
-        self.raw_scores[competition_id][uid] = score
+            if hotkey:
+                old = self._uid_to_hotkey.get(uid)
+                if old and old != hotkey:
+                    self._hotkey_to_uid.pop(old, None)
+                self._uid_to_hotkey[uid] = hotkey
+                self._hotkey_to_uid[hotkey] = uid
 
-        # mapping
-        if hotkey:
-            old = self.uid_to_hotkey.get(uid)
-            if old and old != hotkey:
-                del self.hotkey_to_uid[old]
-            self.uid_to_hotkey[uid] = hotkey
-            self.hotkey_to_uid[hotkey] = uid
+    def get(self, comp_id: int, uid: Optional[int] = None) -> Union[float, Dict[int, float]]:
+        """EMA getter (old .get)."""
+        with self._lock:
+            cd = self._data.get(comp_id, CompetitionData())
+            return cd.ema.get(uid) if uid is not None else cd.ema.get_all()
 
-    def get(
+    def get_raw_scores(self, comp_id: int, uid: Optional[int] = None) -> Union[RawData, Dict[int, RawData], None]:
+        """Raw scores getter (old .get_raw_scores)."""
+        with self._lock:
+            cd = self._data.get(comp_id, CompetitionData())
+            if uid is not None:
+                return cd.raw.get(uid)
+            return dict(cd.raw)
+
+    def combined_raw(self, block: int, uids: List[int]) -> Dict[int, Dict[str, float]]:
+        """Weighted aggregation of nested/dict raw scores."""
+        wmap = self.weight_source(block)
+        out: Dict[int, Dict[str, float]] = {}
+        with self._lock:
+            for uid in uids:
+                agg: Dict[str, float] = {}
+                for cid, w in wmap.items():
+                    rd = self._data.get(cid, CompetitionData()).raw.get(uid)
+                    if rd is None: continue
+                    if isinstance(rd.score, dict):
+                        for k, v in rd.score.items():
+                            agg[k] = agg.get(k, 0.0) + v * w
+                    else:
+                        agg["score"] = agg.get("score", 0.0) + float(rd.score) * w
+                out[uid] = agg
+        return out
+
+    def get_combined_scores(self, block: int, uids: List[int]) -> Dict[int, float]:
+        """Back-compat name mapping to combined_raw for scalar scores only."""
+        nested = self.combined_raw(block, uids)
+        return {uid: data.get("score", 0.0) for uid, data in nested.items()}
+
+    def set_alpha(self, comp_id: int, new_alpha: float) -> None:
+        """Back-compat setter."""
+        with self._lock:
+            self._comp(comp_id).ema.set_alpha(new_alpha)
+
+    def remove_competition(self, comp_id: int) -> None:
+        with self._lock:
+            self._data.pop(comp_id, None)
+
+    def clear_all(self) -> None:
+        with self._lock:
+            self._data.clear()
+            self._uid_to_hotkey.clear()
+            self._hotkey_to_uid.clear()
+
+    def reset_competitions(self, keep: Set[int]) -> None:
+        with self._lock:
+            for cid in list(self._data):
+                if cid not in keep:
+                    del self._data[cid]
+
+    def reset_uid(self, uid: int) -> None:
+        with self._lock:
+            for cd in self._data.values():
+                cd.ema.reset(uid)
+                if uid in cd.raw:
+                    cd.raw[uid].score = 0.0
+
+    def reset_score_for_hotkey(self, hotkey: str) -> None:
+        uid = self.uid_for(hotkey)
+        if uid is not None:
+            self.reset_uid(uid)
+
+    def subnet_weights(
         self,
-        competition_id: Any,
-        uid: Optional[int] = None
-    ) -> Any:
-        """
-        If uid is None, returns EMA dict; otherwise EMA for that uid.
-        """
-        tracker = self._get_or_create_tracker(competition_id)
-        return tracker.get(uid) if uid is not None else tracker.get_all_scores()
-
-    def get_raw_scores(
-        self,
-        competition_id: Any,
-        uid: Optional[int] = None
-    ) -> Any:
-        """
-        If uid is None, returns raw-score dict; otherwise raw score for that uid.
-        """
-        comp = self.raw_scores.get(competition_id, {})
-        return comp.get(uid, 0.0) if uid is not None else dict(comp)
-
-    def set_alpha(self, competition_id: Any, new_alpha: float):
-        tracker = self._get_or_create_tracker(competition_id)
-        tracker.set_alpha(new_alpha)
-
-    def remove_competition(self, competition_id: Any):
-        """Wipe all data for that competition."""
-        self.trackers.pop(competition_id, None)
-        self.raw_scores.pop(competition_id, None)
-
-    def clear_all(self):
-        """Wipe every competition and mapping."""
-        self.trackers.clear()
-        self.raw_scores.clear()
-        self.uid_to_hotkey.clear()
-        self.hotkey_to_uid.clear()
-        self.competition_weights.clear()
-
-    def reset_competitions(self, competition_ids: typing.Set[Any]):
-        """Resets tracked competitions to only those identified.
-
-        Args:
-            competition_ids (typing.Set[Any]): Competition ids to continue tracking.
-        """
-        # Make a list to avoid issues deleting from within the dictionary iterator.
-        for key in list(self.trackers.keys()):
-            if key not in competition_ids:
-                del self.trackers[key]
-        
-        for key in list(self.raw_scores.keys()):
-            if key not in competition_ids:
-                del self.raw_scores[key]
-        
-        for key in list(self.competition_weights.keys()):
-            if key not in competition_ids:
-                del self.competition_weights[key]
-
-    def reset_uid(self, uid: int):
-        """
-        Zero out all scores for a given UID.
-        """
-        # 1. Reset EMA scores
-        for tracker in self.trackers.values():
-            if uid in tracker.ema_scores:
-                tracker.ema_scores[uid] = 0.0
-
-        # 2. Reset raw scores
-        for comp_dict in self.raw_scores.values():
-            if uid in comp_dict:
-                comp_dict[uid] = 0.0
-
-    def reset_score_for_hotkey(self, hotkey: str):
-        """
-        Zero out both EMA and raw for the model behind this hotkey.
-        """
-        uid = self.hotkey_to_uid.get(hotkey)
-        if uid is None:
-            return
-        
-        self.reset_uid(uid)
-
-
-    def get_combined_scores(self, block: int, uids: list[int]) -> Dict[int, float]:
-        """
-        Block‐aware aggregation of raw scores:
-          score_i = sum_over_active_comps(weight(comp) * raw_score_i)
-        """
-        competition_weights = get_current_competition(block)
-        combined = collections.defaultdict(float)
-
-        for uid in uids:
-            total = 0.0
-            for comp_id, w in competition_weights.items():
-                if comp_id in self.raw_scores:
-                    total += w * self.raw_scores[comp_id].get(uid, 0.0)
-            combined[uid] = total
-
-        return dict(combined)
-
-    def get_uid(self, hotkey: str) -> Optional[int]:
-        return self.hotkey_to_uid.get(hotkey)
-
-    def get_hotkey(self, uid: int) -> Optional[str]:
-        return self.uid_to_hotkey.get(uid)
-
-    def get_subnet_weights(
-        self,
-        competitions: typing.List[Competition],
-        min_comp_weight_threshold: float = 0.0,
+        competitions: List[Competition],
+        min_comp_weight_threshold: float = 0.0
     ) -> torch.Tensor:
-        """Aggregate tensor‐based weights across competitions (with optional thresholding)."""
-        subnet_weights = torch.zeros(self.num_neurons, dtype=torch.float32)
+        """Aggregate EMA-derived weight tensor per comp (old get_subnet_weights)."""
+        out = torch.zeros(self.num_neurons, dtype=torch.float32)
+        with self._lock:
+            for comp in competitions:
+                cid = comp.id
+                cd = self.get_competition_data(cid)
+                if not cd or cd.weights.numel() == 0:
+                    continue
+                t = cd.weights.clone().float()
+                if min_comp_weight_threshold > 0:
+                    mask = t < min_comp_weight_threshold
+                    t[mask] = 0.0
+                    s = t.sum().item() or 1.0
+                    t /= s
+                    t = t.nan_to_num(0.0)
+                out += t * comp.reward_percentage
+        s = out.sum().item() or 1.0
+        return (out / s).nan_to_num(0.0)
 
-        for comp in competitions:
-            comp_id = comp.id
-            if comp_id not in self.competition_weights:
-                continue
-            
-            tensor = self.competition_weights[comp_id]
+    def record_competition_weights(self, comp_id: int, weights: torch.Tensor) -> None:
+        with self._lock:
+            self._comp(comp_id).weights = weights.clone().float()
 
-            if min_comp_weight_threshold > 0:
-                mask = tensor < min_comp_weight_threshold
-                tensor[mask] = 0.0
-                tensor /= tensor.sum() if tensor.sum() > 0 else 1.0
-                tensor = tensor.nan_to_num(0.0)
+    def get_competition_weights(self, comp_id: int) -> torch.Tensor:
+        with self._lock:
+            cd = self.get_competition_data(comp_id)
+            return cd.weights.clone() if cd else torch.zeros(self.num_neurons, dtype=torch.float32)
 
-            subnet_weights += tensor * comp.reward_percentage
+    def uid_for(self, hotkey: str) -> Optional[int]:
+        with self._lock:
+            return self._hotkey_to_uid.get(hotkey)
 
-        subnet_weights /= subnet_weights.sum() if subnet_weights.sum() > 0 else 1.0
-        return subnet_weights.nan_to_num(0.0)
+    def hotkey_for(self, uid: int) -> Optional[str]:
+        with self._lock:
+            return self._uid_to_hotkey.get(uid)
+
+    def get_last_updated_block(self, comp_id: int) -> Optional[int]:
+        with self._lock:
+            cd = self.get_competition_data(comp_id)
+            return cd.last_updated_block if cd else None
+
+    def save(self, path: str) -> None:
+        with self._lock:
+            state = {
+                "num_neurons": self.num_neurons,
+                "data": {
+                    str(cid): {
+                        "ema_scores": cd.ema.get_all(),
+                        "ema_alpha": cd.ema.alpha,
+                        "raw": {str(uid): {"score": rd.score, "block": rd.block} for uid, rd in cd.raw.items()},
+                        "weights": cd.weights.tolist(),
+                        "last_updated_block": cd.last_updated_block,
+                    }
+                    for cid, cd in self._data.items()
+                },
+                "hotkey_map": {str(uid): hk for uid, hk in self._uid_to_hotkey.items()},
+            }
+        Path(path).write_text(json.dumps(state))
+
+    def load(self, path: str) -> None:
+        raw = json.loads(Path(path).read_text())
+        with self._lock:
+            self.num_neurons = raw["num_neurons"]
+            self.clear_all()
+            for cid_str, entry in raw["data"].items():
+                cid = int(cid_str)
+                cd = self._comp(cid)
+                cd.ema.set_alpha(entry.get("ema_alpha", 0.2))
+                cd.ema._scores = {int(u): float(v) for u, v in entry["ema_scores"].items()}
+                cd.raw = {int(u): RawData(score=e["score"], block=e["block"]) for u, e in entry["raw"].items()}
+                cd.weights = torch.tensor(entry["weights"], dtype=torch.float32)
+                cd.last_updated_block = entry.get("last_updated_block")
+            self._uid_to_hotkey = {int(u): hk for u, hk in raw["hotkey_map"].items()}
+            self._hotkey_to_uid = {hk: int(u) for u, hk in raw["hotkey_map"].items()}
     
-    def record_competition_weights(self, competition_id: int, weights: torch.Tensor):
-        """Records the weights for a given competition."""
-        self.competition_weights[competition_id] = weights
-
-    def get_competition_weights(self, competition_id: int) -> torch.Tensor:
-        """Return the EMA‐derived weight tensor for one competition."""
-        return self.competition_weights.get(competition_id, torch.zeros(self.num_neurons, dtype=torch.float32))
-
-    def save_state(self, filepath: str):
-        """
-        Serialize entire tracker state to disk.
-        """
-        state = {
-            "default_alpha":      self.default_alpha,
-            "trackers":           self.trackers,
-            "raw_scores":         dict(self.raw_scores),
-            "uid_to_hotkey":      self.uid_to_hotkey,
-            "hotkey_to_uid":      self.hotkey_to_uid,
-            "num_neurons":        self.num_neurons,
-            "competition_weights": self.competition_weights,
-        }
-        with open(filepath, "wb") as f:
-            pickle.dump(state, f)
-
-    def load_state(self, filepath: str):
-        """
-        Load tracker state from disk, replacing all in‐memory data.
-        """
-        with open(filepath, "rb") as f:
-            state = pickle.load(f)
-
-        self.default_alpha     = state["default_alpha"]
-        self.trackers          = state["trackers"]
-        self.raw_scores        = collections.defaultdict(dict, state["raw_scores"])
-        self.uid_to_hotkey     = state["uid_to_hotkey"]
-        self.hotkey_to_uid     = state["hotkey_to_uid"]
-        self.num_neurons       = state["num_neurons"]
-        self.competition_weights = state["competition_weights"]
+    def get_competition_data(self, comp_id: int) -> Optional[CompetitionData]:
+        with self._lock:
+            return self._data.get(comp_id)

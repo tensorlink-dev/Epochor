@@ -89,7 +89,7 @@ class ValidatorState:
         self.version_filepath = os.path.join(base_dir, ValidatorState.VERSION_FILENAME)
 
         self.model_tracker = ModelTracker()
-        self.ema_tracker = CompetitionEMATracker(num_neurons=len(metagraph.uids),default_alpha=constants.alpha)
+        self.ema_tracker = CompetitionEMATracker(num_neurons=len(metagraph.uids))
 
         self.uids_to_eval: typing.Dict[int, typing.Set] = defaultdict(set)
         self.pending_uids_to_eval: typing.Dict[int, typing.Set] = defaultdict(set)
@@ -136,7 +136,7 @@ class ValidatorState:
             )
         else:
             try:
-                self.ema_tracker.load_state(self.competition_tracker_filepath)
+                self.ema_tracker.load(self.competition_tracker_filepath)
             except Exception as e:
                 bt.logging.warning(
                     f"Failed to load competition tracker state. Reason: {e}. Starting from scratch."
@@ -178,7 +178,7 @@ class ValidatorState:
 
         # Save the state of the trackers to file.
         self.model_tracker.save_state(self.model_tracker_filepath)
-        self.ema_tracker.save_state(self.competition_tracker_filepath)
+        self.ema_tracker.save(self.competition_tracker_filepath)
 
     def get_uids_to_eval(self, competition_id: int) -> typing.Set[int]:
         with self.pending_uids_to_eval_lock:

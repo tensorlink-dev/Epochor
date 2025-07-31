@@ -163,7 +163,7 @@ class Validator:
             block=self._get_current_block(),
             schedule_by_block=competitions.COMPETITION_SCHEDULE_BY_BLOCK,
         )
-        self.weights = self.state.ema_tracker.get_subnet_weights(competition_schedule)
+        self.weights = self.state.ema_tracker.subnet_weights(competition_schedule)
 
         # Setup WeightSetter
         self.weight_setter = WeightSetter(
@@ -299,7 +299,7 @@ class Validator:
         win_rate = scorings_metrics.get('win_rate_dict', {})
         active_competition_ids = {comp.id for comp in competition_schedule}
         self.state.ema_tracker.reset_competitions(active_competition_ids)
-        self.weights = self.state.ema_tracker.get_subnet_weights(competition_schedule)
+        self.weights = self.state.ema_tracker.subnet_weights(competition_schedule)
 
         tracker_competition_weights = self.state.ema_tracker.get_competition_weights(competition.id)
         model_prioritization = {
@@ -318,7 +318,7 @@ class Validator:
         self._update_uids_to_eval(competition.id, models_to_keep, active_competition_ids)
         self.state.save()
 
-        self.log_step(competition.id, competition.constraints.epsilon_func, eval_tasks, cur_block, uids, uid_to_state, self._get_uids_to_competition_ids(), seed, data_loaders,  win_rate, scorings_metrics, load_model_perf, compute_loss_perf, load_data_perf)
+        self.log_step(competition.id, epsilon_func, eval_tasks, cur_block, uids, uid_to_state, self._get_uids_to_competition_ids(), seed, data_loaders,  win_rate, scorings_metrics, load_model_perf, compute_loss_perf, load_data_perf)
         self.global_step += 1
 
     def _get_current_block(self) -> int:
