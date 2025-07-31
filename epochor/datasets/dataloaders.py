@@ -108,13 +108,14 @@ class DatasetLoaderFactory:
                 bench = SyntheticBenchmarkerV1(length=length, n_series=n_series)
                 
                 num_batches = dataset_kwargs.get("num_batches") # Optional
-                data =  bench.prepare_data(seed=seed)
-
-                dataset = StaticSyntheticDataset(
-                    StaticDictDataset(data), 
-                    batch_size=16)
+                data = bench.prepare_data(seed=seed)
                 
-                # SyntheticTimeSeriesDataset yields full batches, so batch_size=None for the DataLoader.
-                return DataLoader(dataset, batch_size=None, num_workers=0)
+                # Corrected: Directly pass the data dictionary to StaticSyntheticDataset
+                # and extract batch_size from dataset_kwargs
+                batch_size = dataset_kwargs.get("batch_size", 16) # Default to 16 if not provided
+                dataset = StaticSyntheticDataset(data)
+                
+                # Use a regular DataLoader with the specified batch_size
+                return DataLoader(dataset, batch_size=batch_size, num_workers=0)
             case _:
                 raise NotImplementedError(f"Dataset {dataset_id} not implemented.")
