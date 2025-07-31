@@ -5,7 +5,7 @@ from temporal.models.builder import build_time_series_transformer as model_cls
 from temporal.configs.transformer_config import  TransformerTimeSeriesConfig as config_cls
 from temporal.models.base_model import  BaseTemporalModel as model_type
 
-from competitions.competitions import CompetitionId # Updated import
+from competitions import CompetitionId # Updated import to be from competitions package directly
 from enum import IntEnum # Keep IntEnum for other enums if they are still local
 
 class ModelConstraints(BaseModel):
