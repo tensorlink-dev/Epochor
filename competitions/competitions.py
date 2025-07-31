@@ -10,8 +10,21 @@
 # the Software.
 
 from typing import List, Tuple, Dict
-from constants import CompetitionId, BATCH_SIZE
 from epochor.model.model_constraints import Competition, EvalTask, EvalMethodId, DatasetId, NormalizationId, MODEL_CONSTRAINTS_BY_COMPETITION_ID
+from enum import IntEnum
+
+class CompetitionId(IntEnum):
+    """
+    Defines the different competition tracks available in the Epochor subnet.
+    Validators and miners can use this to tailor their behavior based on the
+    active competition.
+    """
+    UNIVARIATE = 0
+    UNIVARIATE_COVARS = 1
+    MULTIVARIATE =  2
+
+    def __repr__(self) -> str:
+        return f"{self.value}"
 
 # BATCH_SIZE and PAGES_PER_EVAL_FINEWEB are not defined in constants, so I will define them here.
 COMPETITION_SCHEDULE_BY_BLOCK: Dict[int, List[Competition]] = {
