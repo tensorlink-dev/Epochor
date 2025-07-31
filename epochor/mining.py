@@ -160,6 +160,7 @@ async def register(
     repo_id: str,
     commit_hash: str,
     competition_id: CompetitionId,
+    secure_hash: Optional[str] = None,
     retry_delay_secs: int = 60,
     metadata_store: Optional[ModelMetadataStore] = None,
     netuid: int = None,
@@ -189,15 +190,16 @@ async def register(
     )
 
     # 2) Pull down that exact tree and compute secure_hash
-    with tempfile.TemporaryDirectory() as tmpdir:
-        local_path = snapshot_download(
-            repo_id=repo_id,
-            revision=commit_hash,
-            cache_dir=tmpdir,
-            token=os.getenv("HF_ACCESS_TOKEN"),
-        )
-        secure_hash = hash_directory(local_path)
-    logger.info("Computed secure_hash=%s for %s@%s", secure_hash, repo_id, commit_hash)
+    if secure_hash is None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tree_path = snapshot_download(
+                repo_id=repo_id,
+                revision=commit_hash,
+                cache_dir=tmpdir,
+                token=os.getenv("HF_ACCESS_TOKEN"),
+            )
+            secure_hash = hash_directory(tree_path)
+        logger.info("Computed secure_hash=%s for %s@%s", secure_hash, repo_id, commit_hash)
 
     # 3) Embed that into the ModelId
     model_id = replace(model_id, secure_hash=secure_hash)
