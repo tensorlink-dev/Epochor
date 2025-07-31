@@ -31,3 +31,37 @@ def get_architecture_diff_score(config_a, config_b) -> int:
             diff_count += 1
             
     return diff_count
+
+
+    import numpy as np
+
+def apply_copy_penalty(
+    base_score: np.ndarray,   # shape (N,)
+    time_lt:    np.ndarray,   # lower-triangular age-diff matrix (age_i – age_j for i>j)
+    sim_lt:     np.ndarray,   # lower-triangular similarity matrix (0 ⇒ identical, >0 ⇒ different)
+    P:          float         # flat penalty factor for any copy, e.g. 0.5
+) -> np.ndarray:
+    """
+    - Any model that is a younger copy (identical sim==0 and age_i < age_j)
+      gets penalty = P.
+    - All originals & unique models get penalty = 1.
+    Final score = base_score * penalty.
+    """
+    N = base_score.shape[0]
+
+    # Reconstruct full matrices
+    time_full = time_lt - time_lt.T
+    sim_full  = sim_lt + sim_lt.T
+
+    # Detect identical off-diagonal pairs
+    eye       = np.eye(N, dtype=bool)
+    identical = (sim_full == 0) & (~eye)
+
+    # Flag any model that’s the younger half of an identical pair
+    is_copy = (identical & (time_full < 0)).any(axis=1)
+
+    # Build penalty vector
+    penalty = np.where(is_copy, P, 1.0)
+
+    # Apply
+    return base_score * penalty

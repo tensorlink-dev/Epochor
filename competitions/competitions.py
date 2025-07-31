@@ -29,7 +29,8 @@ COMPETITION_SCHEDULE_BY_BLOCK: Dict[int, List[Competition]] = {
                     normalization_id=NormalizationId.NONE,
                     dataset_kwargs={
                         "batch_size": 32,
-                        "num_pages": 1,
+                        "n_series": 1000,
+                        "length" : 1024,
                     },
                     weight=1.00,
                 )

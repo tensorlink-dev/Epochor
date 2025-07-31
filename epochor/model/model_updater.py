@@ -128,7 +128,8 @@ class ModelUpdater:
 
         # 6) Record in tracker (even if validation fails)
         self.model_tracker.on_model_updated(hotkey, metadata)
-
+        # fingerprint = get_arch_dict(model.model.config)
+        # self.model_tracker.hotkey_to_model_fingerprint(fingerprint)
         # 7) Optional hash check
         if metadata.id.hash:
             combined = get_hash_of_two_strings(metadata.id.hash, hotkey)
