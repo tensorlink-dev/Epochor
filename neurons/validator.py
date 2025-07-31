@@ -352,6 +352,7 @@ class Validator:
     def _compute_and_set_competition_weights(self, cur_block, uids, uid_to_state, competition):
         uid_to_score = {uid: state.score for uid, state in uid_to_state.items()}
         uid_to_block = {uid: state.block for uid, state in uid_to_state.items()}
+       # uid_to_time = {uid: cur_block - state.block for uid, state in uid_to_state.items()}
         
         wins, win_rate, _, logging_metrics = compute_scores(uid_to_score, uid_to_block, competition.constraints.epsilon_func, cur_block)
         

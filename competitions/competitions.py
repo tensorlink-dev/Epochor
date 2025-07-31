@@ -10,8 +10,9 @@
 # the Software.
 
 from typing import List, Tuple, Dict
-from epochor.model.model_constraints import Competition, EvalTask, EvalMethodId, DatasetId, NormalizationId, MODEL_CONSTRAINTS_BY_COMPETITION_ID
+from epochor.model.model_constraints import Competition, EvalTask, EvalMethodId, NormalizationId, MODEL_CONSTRAINTS_BY_COMPETITION_ID
 from competitions import CompetitionId # Corrected import
+from epochor.datasets.ids import DatasetId # New import
 
 # BATCH_SIZE and PAGES_PER_EVAL_FINEWEB are not defined in constants, so I will define them here.
 COMPETITION_SCHEDULE_BY_BLOCK: Dict[int, List[Competition]] = {
@@ -24,7 +25,7 @@ COMPETITION_SCHEDULE_BY_BLOCK: Dict[int, List[Competition]] = {
                 EvalTask(
                     name="SYNTHETIC-V1",
                     method_id=EvalMethodId.CRPS_LOSS,
-                    dataset_id=0 ,
+                    dataset_id=DatasetId.UNIVARIATE_SYNTHETIC, # Changed from 0
                     normalization_id=NormalizationId.NONE,
                     dataset_kwargs={
                         "batch_size": 32,
