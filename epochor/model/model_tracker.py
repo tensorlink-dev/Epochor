@@ -12,6 +12,7 @@ class ModelTracker:
         self.miner_hotkey_to_model_metadata: Dict[str, ModelMetadata] = {}
         self.miner_hotkey_to_eval_results: Dict[str, Dict[int, List[EvalResult]]] = {}
         self.lock = threading.RLock()
+        #self.hotkey_to_model_fingerprint : Dict[str, Dict] = {}
 
     def on_hotkeys_updated(self, hotkeys: set[str]):
         """Called when the hotkeys in the metagraph change."""
@@ -87,7 +88,7 @@ class ModelTracker:
         """Returns a copy of the mapping from hotkey to model metadata."""
         with self.lock:
             return self.miner_hotkey_to_model_metadata.copy()
-
+   
     def save_state(self, filepath: str):
         """Saves the current state of the model tracker to a file."""
         with self.lock:
@@ -100,3 +101,5 @@ class ModelTracker:
         with open(filepath, "rb") as f:
             self.miner_hotkey_to_model_metadata = pickle.load(f)
             self.miner_hotkey_to_eval_results = pickle.load(f)
+
+    # get fingerprint, append fingerprint

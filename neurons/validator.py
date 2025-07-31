@@ -252,6 +252,7 @@ class Validator:
                 hotkey = self.metagraph.hotkeys[uid_i]
             uid_to_state[uid_i].hotkey = hotkey
             model_i_metadata = self.state.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
+           # model_i_fingerprint = self.state.model_tracker.get_model_fingerprint_for_miner_hotkey(hotkey)
 
             if model_i_metadata and model_i_metadata.id.competition_id == competition.id:
                 try:
@@ -278,9 +279,10 @@ class Validator:
                     logging.error(f"Error in eval loop for UID {uid_i}: {traceback.format_exc()}")
             
             uid_to_state[uid_i].score = score
-            uid_to_state[uid_i].score_details = score_details
+            uid_to_state[uid_i].score_details = score_details 
+           # fingerprints[uid] = model_i_fingerprint
 
-        wins, win_rate, logging_metrics = self._compute_and_set_competition_weights(cur_block, uids, uid_to_state, competition)
+        wins, win_rate, logging_metrics = self._compute_and_set_competition_weights(cur_block, uids, uid_to_state, competition) #fingerprints
         
         active_competition_ids = {comp.id for comp in competition_schedule}
         self.state.ema_tracker.reset_competitions(active_competition_ids)
