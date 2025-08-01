@@ -100,7 +100,7 @@ class DatasetLoaderFactory:
 
         match dataset_id:
             case DatasetId.UNIVARIATE_SYNTHETIC:
-                length = dataset_kwargs.get("sequence_length")
+                length = dataset_kwargs.get("length") # Changed from "sequence_length" to "length"
                 n_series = dataset_kwargs.get("n_series")
                 if length is None or n_series is None:
                     raise ValueError("dataset_kwargs must contain 'length' and 'n_series' for UNIVARIATE_SYNTHETIC")
