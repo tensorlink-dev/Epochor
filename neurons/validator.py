@@ -258,7 +258,9 @@ class Validator:
                     uid_to_state[uid_i].repo_name = model_utils.get_hf_repo_name(model_i_metadata)
                     
                     with load_model_perf.sample():
-                        model_i = self.local_store.retrieve_model(hotkey, model_i_metadata.id)
+                        model_i = self.local_store.retrieve_model(hotkey, 
+                            model_i_metadata.id,
+                            model_constraints=MODEL_CONSTRAINTS_BY_COMPETITION_ID[competition.id])
                     
                     with compute_loss_perf.sample():
                         score, score_details = utils.run_in_subprocess(
