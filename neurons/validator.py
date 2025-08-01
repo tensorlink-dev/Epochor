@@ -37,7 +37,7 @@ from epochor.model.storage.hf_model_store import HuggingFaceModelStore
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
 from epochor.utils import metagraph_utils
 from epochor.utils.miner_iterator import MinerIterator
-
+from epochor.model.model_constraints import MODEL_CONSTRAINTS_BY_COMPETITION_ID
 from taoverse.utilities.perf_monitor import PerfMonitor
 from taoverse.metagraph.metagraph_syncer import MetagraphSyncer
 
