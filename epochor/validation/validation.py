@@ -55,7 +55,7 @@ class ScoreDetails:
 def compute_scores(
     uids: typing.List[int],
     uid_to_score: typing.Dict[int, float],
-) -> typing.Tuple[typing.Dict[int, int], typing.Dict[int, float]]:
+) -> typing.Dict[str, typing.Dict[int, float]]:  # Changed return type hint
     """
     Computes the wins and win rate for each model based on loss comparison.
 
