@@ -263,7 +263,7 @@ class Validator:
                             model_constraints=MODEL_CONSTRAINTS_BY_COMPETITION_ID[competition.id])
                     
                     with compute_loss_perf.sample():
-                        score, score_details = utils.run_in_subprocess(
+                        score, score_details = utils.misc.run_in_subprocess(
                             functools.partial(
                                 score_time_series_model, 
                                 model_i,  
