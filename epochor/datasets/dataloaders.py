@@ -3,7 +3,7 @@ from torch.utils.data import IterableDataset
 from torch.utils.data import Dataset as Dataset
 from torch.utils.data import DataLoader
 from typing import Iterator, Optional, Any, Dict
-
+import torch
 from epochor.datasets.ids import DatasetId
 from epochor.generators.synthetic_v1 import SyntheticBenchmarkerV1
 
