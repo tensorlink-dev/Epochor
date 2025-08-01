@@ -280,8 +280,9 @@ class Validator:
             uid_to_state[uid_i].score_details = score_details 
            # fingerprints[uid] = model_i_fingerprint
 
-        wins, win_rate, logging_metrics = self._compute_and_set_competition_weights(cur_block, uids, uid_to_state, competition) #fingerprints
-        
+        scorings_metrics = self._compute_and_set_competition_weights(cur_block, uids, uid_to_state, competition) #fingerprints
+
+        win_rate = scorings_metrics['win_rate_dict']
         active_competition_ids = {comp.id for comp in competition_schedule}
         self.state.ema_tracker.reset_competitions(active_competition_ids)
         self.weights = self.state.ema_tracker.get_subnet_weights(competition_schedule)
@@ -303,7 +304,7 @@ class Validator:
         self._update_uids_to_eval(competition.id, models_to_keep, active_competition_ids)
         self.state.save()
 
-        self.log_step(competition.id, competition.constraints.epsilon_func, eval_tasks, cur_block, uids, uid_to_state, self._get_uids_to_competition_ids(), seed, data_loaders, wins, win_rate, logging_metrics, load_model_perf, compute_loss_perf, load_data_perf)
+        self.log_step(competition.id, competition.constraints.epsilon_func, eval_tasks, cur_block, uids, uid_to_state, self._get_uids_to_competition_ids(), seed, data_loaders,  win_rate, scoring_metrics, load_model_perf, compute_loss_perf, load_data_perf)
         self.global_step += 1
 
     def _get_current_block(self) -> int:
@@ -357,10 +358,10 @@ class Validator:
        # time_lower_tri = [uid_to_time .. ]
         # arch_lower_tri = [compare_arch(i,j)]
 
-        wins, win_rate, _, logging_metrics = compute_scores(uid_to_score, uid_to_block) #, competition.constraints.epsilon_func, cur_block)
+        scorings_metrics = compute_scores(uid_to_score, uid_to_block) #, competition.constraints.epsilon_func, cur_block)
         # final_score = 'apply_copy_penalty'(logging_metrics[uid]["final_scores_dict"], time_lower_tri, arch_lower_tri, P=0.1)
 
-        scores_for_ema = {uid: logging_metrics["final_scores_dict"][uid] for uid in uids}
+        scores_for_ema = {uid: scorings_metrics["final_scores_dict"][uid] for uid in uids}
         self.state.update_ema_scores(scores_for_ema, competition.id)
         scores = self.state.get_ema_scores(competition.id)
         
@@ -373,7 +374,7 @@ class Validator:
         
         self.state.ema_tracker.record_competition_weights(competition.id, step_weights)
         
-        return wins, win_rate, logging_metrics
+        return scorings_metrics
 
     def _record_eval_results(self, top_uid, curr_block, uid_to_state, competition_id):
         top_model_score = uid_to_state[top_uid].score
@@ -387,7 +388,7 @@ class Validator:
     def _update_uids_to_eval(self, competition_id, uids, active_competitions):
         self.state.update_uids_to_eval(competition_id, uids, active_competitions)
 
-    def log_step(self, competition_id, epsilon_func, eval_tasks, current_block, uids, uid_to_state, uid_to_comp, seed, data_loaders, wins, win_rate, logging_metrics, load_model_perf, compute_loss_perf, load_data_perf):
+    def log_step(self, competition_id, epsilon_func, eval_tasks, current_block, uids, uid_to_state, uid_to_comp, seed, data_loaders, win_rate, logging_metrics, load_model_perf, compute_loss_perf, load_data_perf):
         step_log = {"timestamp": time.time(), "competition_id": competition_id, "uids": uids, "uid_data": {}}
         
         sub_comp_weights = self.state.ema_tracker.get_competition_weights(competition.id)
@@ -398,8 +399,8 @@ class Validator:
                 "uid": uid,
                 "block": uid_to_state[uid].block,
                 "hf": uid_to_state[uid].repo_name,
-                "raw_score": metrics.get("raw_score", math.inf),
-                "ema_score": metrics.get("ema_score", math.inf),
+                "raw_score": metrics.get("raw_composite_score_dict", math.inf),
+                "ema_score": metrics.get("final_scores_dict", math.inf),
                 "win_rate": win_rate.get(uid, 0.0),
                 "weight": self.weights[uid].item(),
                 "norm_weight": sub_comp_weights[uid].item()
