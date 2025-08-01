@@ -261,7 +261,12 @@ class Validator:
                         model_i = self.local_store.retrieve_model(hotkey, 
                             model_i_metadata.id,
                             model_constraints=MODEL_CONSTRAINTS_BY_COMPETITION_ID[competition.id])
-                    
+                    logging.info(f"DEBUG: Before score_time_series_model call:")
+                    logging.info(f"DEBUG: Type of samples: {type(samples)}, len: {len(samples)}")
+                    if samples: logging.info(f"DEBUG: Type of first element in samples: {type(samples[0])}")
+                    logging.info(f"DEBUG: Type of eval_tasks: {type(eval_tasks)}, len: {len(eval_tasks)}")
+                    if eval_tasks: logging.info(f"DEBUG: Type of first element in eval_tasks: {type(eval_tasks[0])}")
+
                     with compute_loss_perf.sample():
                         score, score_details = utils.misc.run_in_subprocess(
                             functools.partial(
