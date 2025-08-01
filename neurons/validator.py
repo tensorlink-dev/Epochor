@@ -267,8 +267,8 @@ class Validator:
                             functools.partial(
                                 score_time_series_model, 
                                 model_i.model,  
-                                eval_tasks, 
                                 samples, 
+                                eval_tasks, 
                                 self.config.device, 
                                 seed
                             ),
