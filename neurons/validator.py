@@ -360,9 +360,9 @@ class Validator:
         # arch_lower_tri = [compare_arch(i,j)]
 
         wins, win_rate, _, logging_metrics = compute_scores(uid_to_score, uid_to_block, competition.constraints.epsilon_func, cur_block)
-        # final_score = 'apply_copy_penalty'(logging_metrics[uid]["ema_score"], time_lower_tri, arch_lower_tri, P=0.1)
+        # final_score = 'apply_copy_penalty'(logging_metrics[uid]["final_scores_dict"], time_lower_tri, arch_lower_tri, P=0.1)
 
-        scores_for_ema = {uid: logging_metrics[uid]["ema_score"] for uid in uids}
+        scores_for_ema = {uid: logging_metrics["final_scores_dict"][uid] for uid in uids}
         self.state.update_ema_scores(scores_for_ema, competition.id)
         scores = self.state.get_ema_scores(competition.id)
         
