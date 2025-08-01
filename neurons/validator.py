@@ -266,7 +266,7 @@ class Validator:
                         score, score_details = utils.misc.run_in_subprocess(
                             functools.partial(
                                 score_time_series_model, 
-                                model_i,  
+                                model_i.model,  
                                 eval_tasks, 
                                 samples, 
                                 self.config.device, 
