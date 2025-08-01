@@ -36,7 +36,7 @@ class DiskModelStore(LocalModelStore):
             model=model.model,
             config=model.model.config,
             save_directory=save_directory,
-            safe=self.safe_format == "safetensors",
+            safe=True,
         )
         
         return model.id
@@ -56,7 +56,7 @@ class DiskModelStore(LocalModelStore):
             model_name_or_path=model_dir,
             model_cls=model_constraints.model_cls,
             config_cls=model_constraints.config_cls,
-            safe=True
+            safe=True,
             map_location = 'cpu'
         )
 
