@@ -241,8 +241,6 @@ class Validator:
         #flat_samples = [batch for task_batches in samples for batch in task_batches]
 
         logging.debug(f"Competition {competition.id} | Computing scores on {uids}")
-        kwargs = competition.constraints.kwargs.copy()
-        kwargs["use_cache"] = True
         load_model_perf = PerfMonitor("Eval: Load model")
         compute_loss_perf = PerfMonitor("Eval: Compute loss")
 
