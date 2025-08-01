@@ -261,6 +261,8 @@ class Validator:
                         model_i = self.local_store.retrieve_model(hotkey, 
                             model_i_metadata.id,
                             model_constraints=MODEL_CONSTRAINTS_BY_COMPETITION_ID[competition.id])
+                    
+                    # Added debug logs:
                     logging.info(f"DEBUG: Before score_time_series_model call:")
                     logging.info(f"DEBUG: Type of samples: {type(samples)}, len: {len(samples)}")
                     if samples: logging.info(f"DEBUG: Type of first element in samples: {type(samples[0])}")
@@ -365,7 +367,7 @@ class Validator:
        # time_lower_tri = [uid_to_time .. ]
         # arch_lower_tri = [compare_arch(i,j)]
 
-        scorings_metrics = compute_scores(uid_to_score, uid_to_block) #, competition.constraints.epsilon_func, cur_block)
+        scorings_metrics = compute_scores(uids, uid_to_score) #, competition.constraints.epsilon_func, cur_block)
         # final_score = 'apply_copy_penalty'(logging_metrics[uid]["final_scores_dict"], time_lower_tri, arch_lower_tri, P=0.1)
 
         scores_for_ema = {uid: scorings_metrics["final_scores_dict"][uid] for uid in uids}
