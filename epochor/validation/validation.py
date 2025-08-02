@@ -127,11 +127,10 @@ def score_time_series_model(
             targets = targets[:forecast_len]
 
             with torch.inference_mode():
-                preds = model.generate(
+                preds = model.forecast(
                     input_ids=batch["inputs_padded"].unsqueeze(-1),
                     prediction_length=forecast_len,
                     attention_mask=batch["attention_mask"],
-                    decoder_start_token_id=0,
                 )
                 losses = evaluator.evaluate(targets.cpu().numpy(), preds.cpu().numpy())  # [B] or [B, T]
                 all_losses.append(losses)
