@@ -289,9 +289,16 @@ class Validator:
             uid_to_state[uid_i].score_details = score_details 
            # fingerprints[uid] = model_i_fingerprint
 
-        scorings_metrics = self._compute_and_set_competition_weights(cur_block, uids, uid_to_state, competition) #fingerprints
+        # Initialize scoring_metrics to an empty dictionary
+        scorings_metrics = {}
+        try:
+            scorings_metrics = self._compute_and_set_competition_weights(cur_block, uids, uid_to_state, competition) #fingerprints
+        except Exception as e:
+            logging.error(f"Error computing and setting competition weights: {e}{traceback.format_exc()}")
+            # If an error occurs, scorings_metrics remains an empty dictionary, 
+            # preventing NameError in log_step.
 
-        win_rate = scorings_metrics['win_rate_dict']
+        win_rate = scorings_metrics.get('win_rate_dict', {})
         active_competition_ids = {comp.id for comp in competition_schedule}
         self.state.ema_tracker.reset_competitions(active_competition_ids)
         self.weights = self.state.ema_tracker.get_subnet_weights(competition_schedule)
@@ -313,7 +320,7 @@ class Validator:
         self._update_uids_to_eval(competition.id, models_to_keep, active_competition_ids)
         self.state.save()
 
-        self.log_step(competition.id, competition.constraints.epsilon_func, eval_tasks, cur_block, uids, uid_to_state, self._get_uids_to_competition_ids(), seed, data_loaders,  win_rate, scoring_metrics, load_model_perf, compute_loss_perf, load_data_perf)
+        self.log_step(competition.id, competition.constraints.epsilon_func, eval_tasks, cur_block, uids, uid_to_state, self._get_uids_to_competition_ids(), seed, data_loaders,  win_rate, scorings_metrics, load_model_perf, compute_loss_perf, load_data_perf)
         self.global_step += 1
 
     def _get_current_block(self) -> int:
@@ -400,16 +407,16 @@ class Validator:
     def log_step(self, competition_id, epsilon_func, eval_tasks, current_block, uids, uid_to_state, uid_to_comp, seed, data_loaders, win_rate, logging_metrics, load_model_perf, compute_loss_perf, load_data_perf):
         step_log = {"timestamp": time.time(), "competition_id": competition_id, "uids": uids, "uid_data": {}}
         
-        sub_comp_weights = self.state.ema_tracker.get_competition_weights(competition.id)
+        sub_comp_weights = self.state.ema_tracker.get_competition_weights(competition_id) # Changed to competition_id
         
         for uid in uids:
-            metrics = logging_metrics.get(uid, {})
+            metrics = logging_metrics.get("final_scores_dict", {}).get(uid, {})
             step_log["uid_data"][str(uid)] = {
                 "uid": uid,
                 "block": uid_to_state[uid].block,
                 "hf": uid_to_state[uid].repo_name,
-                "raw_score": metrics.get("raw_composite_score_dict", math.inf),
-                "ema_score": metrics.get("final_scores_dict", math.inf),
+                "raw_score": uid_to_state[uid].score, # Use the already computed raw score
+                "ema_score": metrics, # This will be the ema score from the logging_metrics
                 "win_rate": win_rate.get(uid, 0.0),
                 "weight": self.weights[uid].item(),
                 "norm_weight": sub_comp_weights[uid].item()
