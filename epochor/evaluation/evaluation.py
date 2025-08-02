@@ -1,10 +1,3 @@
-"""
-Evaluator for the Epochor subnet, using the Continuous Ranked Probability Score.
-
-This module provides the CRPSEvaluator, which uses the properscoring library
-to compute the CRPS for ensemble forecasts.
-"""
-
 import numpy as np
 from properscoring import crps_ensemble
 from epochor.evaluation.method import EvalMethodId
@@ -28,11 +21,6 @@ class BaseEvaluator:
         """
         raise NotImplementedError
 
-    def score_to_weight(self, scores: np.ndarray) -> np.ndarray:
-        """
-        score to weight placeholder
-        """
-        raise NotImplementedError
 
 class CRPSEvaluator(BaseEvaluator):
     """
@@ -43,7 +31,7 @@ class CRPSEvaluator(BaseEvaluator):
         """
         Args:
             target: shape (T,) or (B, T)
-            prediction: shape (T, N) or (B, T, N)
+            prediction: shape (T, N) or (B, T, N) or (B, T, 1, N)
         Returns:
             If single series: array of shape (T,)
             If batched:      array of shape (B, T)
@@ -55,6 +43,11 @@ class CRPSEvaluator(BaseEvaluator):
         if target.ndim == 2:
             B, T = target.shape
             # Normalize prediction to (B, T, N)
+            if prediction.ndim == 4:
+                if prediction.shape[2] == 1:
+                    prediction = prediction.squeeze(axis=2) # Remove the 1-sized feature dimension
+                else:
+                    raise ValueError(f"Prediction must be 2D or 3D or 4D with a 1-sized 3rd dimension, got {prediction.shape}")
             if prediction.ndim == 3:
                 pass
             elif prediction.ndim == 2:
