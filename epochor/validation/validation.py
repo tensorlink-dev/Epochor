@@ -23,6 +23,7 @@ import dataclasses
 import math
 import typing
 import numpy as np
+import traceback # Import traceback
 
 from epochor.utils import logging
 import torch
@@ -115,49 +116,57 @@ def score_time_series_model(
     device: str,
     task_or_seed: Any,
 ) -> Tuple[float, Dict[str, "ScoreDetails"]]:  # Assuming ScoreDetails is defined elsewhere
-    model.to(device)
-    model.eval()
+    try:
+        model.to(device)
+        model.eval()
 
-    all_losses = []
-    score_details = {}
+        all_losses = []
+        score_details = {}
 
-    # Correctly unpack both eval_task and corresponding task_batches
-    for eval_task, task_batches in zip(eval_tasks, samples):
-        EvaluatorClass = EVALUATION_BY_COMPETITION[eval_task.method_id.value]
-        evaluator = EvaluatorClass()
+        # Correctly unpack both eval_task and corresponding task_batches
+        for eval_task, task_batches in zip(eval_tasks, samples):
+            EvaluatorClass = EVALUATION_BY_COMPETITION[eval_task.method_id.value]
+            evaluator = EvaluatorClass()
 
-        for batch in task_batches:  # Not enumerate here, unless you use `i`
-            inputs = batch["inputs_padded"].to(device)
-            targets = batch["targets_padded"].to(device)
-            forecast_len = batch['actual_target_lengths'][0]
-            targets =  targets[:, :forecast_len]
-            logging.debug(f'forecast len : {forecast_len}')
+            for batch in task_batches:  # Not enumerate here, unless you use `i`
+                inputs = batch["inputs_padded"].to(device)
+                targets = batch["targets_padded"].to(device)
+                forecast_len = batch['actual_target_lengths'][0]
 
-            with torch.inference_mode():
-                preds = model.forecast(
-                    inputs=batch["inputs_padded"].unsqueeze(-1),
-                    prediction_length=forecast_len,
-                    attention_mask=batch["attention_mask"],
-                )
-                losses = evaluator.evaluate(targets.cpu().numpy(), preds.cpu().numpy())  # [B] or [B, T]
-                all_losses.append(losses)
+                with torch.inference_mode():
+                    preds = model.forecast(
+                        inputs=batch["inputs_padded"].unsqueeze(-1),
+                        prediction_length=forecast_len,
+                        attention_mask=batch["attention_mask"],
+                    )
+                    # Pass targets and predictions with their batch and time dimensions intact
+                    # Assuming targets has shape (B, T_padded) and preds has shape (B, T_forecast, F, N_ensemble)
+                    targets_sliced = targets[:, :forecast_len].cpu().numpy()
+                    preds_sliced = preds[:, :forecast_len].cpu().numpy()
 
-    # Flatten and compute mean
-    all_losses_flat = (
-        np.concatenate(all_losses)
-        if all_losses and isinstance(all_losses[0], np.ndarray)
-        else np.array(all_losses)
-    )
-    mean_score = float(np.mean(all_losses_flat))
+                    losses = evaluator.evaluate(targets_sliced, preds_sliced)
+                    all_losses.append(losses)
 
-    score_details["flat_evaluation"] = ScoreDetails(
-        raw_score=all_losses_flat,
-        norm_score=None,
-        weighted_norm_score=None,
-        num_samples=len(all_losses_flat),
-    )
+        # Flatten and compute mean
+        all_losses_flat = (
+            np.concatenate(all_losses)
+            if all_losses and isinstance(all_losses[0], np.ndarray)
+            else np.array(all_losses)
+        )
+        mean_score = float(np.mean(all_losses_flat))
 
-    return mean_score, score_details
+        score_details["flat_evaluation"] = ScoreDetails(
+            raw_score=all_losses_flat,
+            norm_score=None,
+            weighted_norm_score=None,
+            num_samples=len(all_losses_flat),
+        )
+
+        return mean_score, score_details
+    except Exception as e:
+        logging.error(f"Error in score_time_series_model: {e}{traceback.format_exc()}")
+        # Return a default error score and empty details to prevent unpack error
+        return math.inf, {"error": ScoreDetails(raw_score=math.inf, num_samples=0)}
 
 
 def compute_competitive_uids(
