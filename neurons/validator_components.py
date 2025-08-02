@@ -232,7 +232,8 @@ class ValidatorState:
         return self.ema_tracker.get(competition_id=competition_id)
 
     def update_ema_scores(self, scores_for_ema: typing.Dict[int, float], competition_id: int):
-        self.ema_tracker.update(scores_for_ema, competition_id)
+        for uid, score in scores_for_ema.items():
+            self.ema_tracker.update(competition_id, uid, score)
 
     def reset_ema_uid(self,uid: int):
         self.ema_tracker.reset_uid( uid=uid)

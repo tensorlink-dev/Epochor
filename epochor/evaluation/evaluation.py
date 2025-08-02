@@ -34,54 +34,55 @@ class BaseEvaluator:
         """
         raise NotImplementedError
 
-
 class CRPSEvaluator(BaseEvaluator):
     """
-    Evaluator using the ensemble Continuous Ranked Probability Score (CRPS).
-
-    This evaluator is designed for probabilistic forecasting, where the prediction
-    is an ensemble of possible future outcomes.
+    Extended CRPS evaluator that handles batched time series.
     """
-    def eval_task(self) -> str:
-        """Returns the name of the evaluation task."""
-        return 'CRPS'
 
-    def evaluate(self, target: np.ndarray, prediction: np.ndarray) -> float:
+    def evaluate(self, target: np.ndarray, prediction: np.ndarray) -> np.ndarray:
         """
-        Computes the mean ensemble CRPS.
-
         Args:
-            target (np.ndarray): Ground truth values, expected shape [T].
-            prediction (np.ndarray): Ensemble predictions, expected shape [T, N_ensemble_members].
-                                     If a 1D array is passed, it will be treated as an
-                                     ensemble with a single member.
-
+            target: shape (T,) or (B, T)
+            prediction: shape (T, N) or (B, T, N)
         Returns:
-            float: The mean CRPS score over the time series. A lower score is better.
+            If single series: array of shape (T,)
+            If batched:      array of shape (B, T)
         """
         target = np.asarray(target)
         prediction = np.asarray(prediction)
 
-        # --- Shape Validation ---
-        if target.ndim != 1:
-            raise ValueError(f"Target must be a 1D array, but got shape {target.shape}")
-        
-        if prediction.ndim != 2:
-            # Handle the case of a deterministic forecast by creating a dummy ensemble dimension
-            if prediction.ndim == 1:
-                prediction = prediction[:, np.newaxis]
+        # --- Batched case ---
+        if target.ndim == 2:
+            B, T = target.shape
+            # Normalize prediction to (B, T, N)
+            if prediction.ndim == 3:
+                pass
+            elif prediction.ndim == 2:
+                prediction = prediction[..., np.newaxis]
             else:
-                raise ValueError(f"Prediction must be a 2D ensemble array, but got shape {prediction.shape}")
-        
-        if target.shape[0] != prediction.shape[0]:
-            raise ValueError(f"Time dimension mismatch: target shape {target.shape[0]} vs prediction shape {prediction.shape[0]}")
+                raise ValueError(f"Prediction must be 2D or 3D, got {prediction.shape}")
 
-        # --- CRPS Calculation ---
-        # crps_ensemble returns a score for each of the T observations.
-        # We take the mean to get a single scalar score for the entire series.
-        crps_scores = crps_ensemble(observations=target, forecasts=prediction)
-        
-        return crps_scores
+            if prediction.shape[0] != B or prediction.shape[1] != T:
+                raise ValueError(f"Shape mismatch: target {target.shape}, pred {prediction.shape}")
+
+            # Compute CRPS per series
+            scores = np.zeros((B, T), dtype=float)
+            for i in range(B):
+                scores[i] = crps_ensemble(observations=target[i], forecasts=prediction[i])
+            return scores
+
+        # --- Single-series case (unchanged) ---
+        if target.ndim != 1:
+            raise ValueError(f"Target must be 1D or 2D, but got {target.shape}")
+        if prediction.ndim == 1:
+            prediction = prediction[:, np.newaxis]
+        elif prediction.ndim != 2:
+            raise ValueError(f"Prediction must be 1D or 2D, but got {prediction.shape}")
+        if target.shape[0] != prediction.shape[0]:
+            raise ValueError(f"Length mismatch: target {target.shape[0]} vs pred {prediction.shape[0]}")
+
+        return crps_ensemble(observations=target, forecasts=prediction)
+
 
 EVALUATION_BY_COMPETITION = {
     EvalMethodId.CRPS_LOSS.value: CRPSEvaluator,
