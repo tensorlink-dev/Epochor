@@ -325,7 +325,7 @@ class Validator:
         self._update_uids_to_eval(competition.id, models_to_keep, active_competition_ids)
         self.state.save()
 
-        self.log_step(competition.id, epsilon_func, eval_tasks, cur_block, uids, uid_to_state, self._get_uids_to_competition_ids(), seed, data_loaders,  win_rate, scorings_metrics, load_model_perf, compute_loss_perf, load_data_perf)
+        self.log_step(competition.id, competition.constraints.epsilon_func, eval_tasks, cur_block, uids, uid_to_state, self._get_uids_to_competition_ids(), seed, data_loaders,  win_rate, scorings_metrics, load_model_perf, compute_loss_perf, load_data_perf)
         self.global_step += 1
 
     def _get_current_block(self) -> int:
