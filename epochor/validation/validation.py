@@ -80,7 +80,7 @@ def compute_scores(
     except Exception as e:
         logging.error(f"Error computing scores: {e}")
         return  {
-            "final_scores_dict": {uid: np.for uid in uids},
+            "final_scores_dict": {uid: 0.0 for uid in uids},
             "win_rate_dict": {uid: 0.0 for uid in uids},
             "agg_gap_dict": {uid: np.nan for uid in uids},
             "sep_score_dict": {uid: np.nan for uid in uids},
