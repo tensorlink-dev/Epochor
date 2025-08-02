@@ -43,27 +43,37 @@ class CRPSEvaluator(BaseEvaluator):
         if target.ndim not in [1, 2]:
             raise ValueError(f"Target must be 1D or 2D, but got shape {target.shape}")
 
-        if prediction.ndim not in [2, 3, 4]:
-            raise ValueError(f"Prediction must be 2D, 3D or 4D, but got shape {prediction.shape}")
-
-        # Handle 4D prediction: squeeze out the 1-sized feature dimension
+        # Handle 4D prediction (B, T, 1, N) -> (B, T, N)
         if prediction.ndim == 4:
             if prediction.shape[2] == 1:
-                prediction = prediction.squeeze(axis=2) # Result (B, T, N)
+                prediction = prediction.squeeze(axis=2) # Result: (B, T, N)
             else:
                 raise ValueError(f"Prediction 4D shape must have a 1-sized 3rd dimension for squeezing, got {prediction.shape}")
+        
+        # Handle 2D prediction (T, N) or (B, T) -> add ensemble dim if needed
+        if prediction.ndim == 2:
+            # If target is 2D (B, T) and prediction is 2D (B, T), assume N=1 ensemble
+            if target.ndim == 2 and target.shape == prediction.shape:
+                 prediction = prediction[..., np.newaxis] # Result: (B, T, 1)
+            # If target is 1D (T) and prediction is 1D (T), assume N=1 ensemble
+            elif target.ndim == 1 and target.shape == prediction.shape:
+                prediction = prediction[..., np.newaxis] # Result: (T, 1)
+            # If target is 1D (T) and prediction is 2D (T,N) with N>1, it's already correct. No change.
+            # Otherwise, invalid 2D prediction for the given target dimensionality.
+            elif target.ndim == 1 and prediction.shape[0] == target.shape[0]:
+                pass # Already (T, N), nothing to do
+            else:
+                raise ValueError(f"Unsupported 2D prediction shape {prediction.shape} for target shape {target.shape}")
 
-        # Ensure prediction has an explicit ensemble dimension if it's currently (B, T)
-        if prediction.ndim == 2: # This covers (T, N) for single series and (B, T) for batched (N=1)
-            prediction = prediction[..., np.newaxis] # Result (T, N, 1) or (B, T, 1)
+        # After the above, prediction should be 3D (B, T, N) or 2D (T, N).
+        # Now proceed based on target dimensionality.
 
-        # Now, prediction should be (T, N) or (B, T, N)
-
-        if target.ndim == 2: # Batched case
+        if target.ndim == 2: # Batched case: target (B, T)
             B, T_target = target.shape
+            if prediction.ndim != 3:
+                raise ValueError(f"For batched target {target.shape}, prediction must be 3D (B, T, N) after normalization, but got {prediction.shape}")
             B_pred, T_pred, N_ensemble = prediction.shape
-
-            if B_pred != B or T_pred != T_target: # This check is crucial
+            if B_pred != B or T_pred != T_target:
                 raise ValueError(f"Shape mismatch in batched evaluation: target {target.shape}, prediction {prediction.shape}")
 
             # Compute CRPS for each time series in the batch
@@ -74,10 +84,11 @@ class CRPSEvaluator(BaseEvaluator):
                 batch_scores.append(np.mean(series_crps)) # Mean CRPS over time steps for this series
             return np.array(batch_scores) # Return array of shape (B,)
 
-        else: # Single-series case (target.ndim == 1)
+        else: # Single-series case: target (T,)
             T_target = target.shape[0]
+            if prediction.ndim != 2:
+                raise ValueError(f"For single series target {target.shape}, prediction must be 2D (T, N) after normalization, but got {prediction.shape}")
             T_pred, N_ensemble = prediction.shape
-
             if T_pred != T_target:
                 raise ValueError(f"Length mismatch in single series evaluation: target {target.shape[0]} vs pred {prediction.shape[0]}")
 
