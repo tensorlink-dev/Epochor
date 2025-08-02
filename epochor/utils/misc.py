@@ -14,16 +14,44 @@ import epochor.utils.logging as logging
 
 
 def _wrapped_func(func: functools.partial, queue: multiprocessing.Queue):
+    # Drastically simplify logging in the subprocess.
+    # Remove all existing handlers from the root logger.
+    import logging as std_logging
+    root_logger = std_logging.getLogger()
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass # Ignore errors if handler is already closed or has issues
+
+    # Optionally, re-add a very basic StreamHandler for subprocess-specific errors
+    # This logger will only print to stderr and won't interfere with parent's queues.
+    subprocess_logger = std_logging.getLogger("subprocess_logger")
+    if not subprocess_logger.handlers:
+        handler = std_logging.StreamHandler()
+        formatter = std_logging.Formatter('%(asctime)s | %(levelname)s | Subprocess | %(message)s')
+        handler.setFormatter(formatter)
+        subprocess_logger.addHandler(handler)
+    subprocess_logger.setLevel(std_logging.ERROR) # Only log errors in subprocess
+    subprocess_logger.propagate = False # Ensure it doesn't try to send to parent
+
     try:
         result = func()
         queue.put(result)
-    except (Exception, BaseException) as e:
-        # Catch exceptions here to add them to the queue.
+    except Exception as e:
+        # Log the exception in the subprocess itself using its isolated logger
+        subprocess_logger.error(f"Exception in subprocess: {e}", exc_info=True)
+        # Put the exception on the queue so the parent can re-raise it
+        queue.put(e)
+    except BaseException as e: # Catch BaseException for critical errors like KeyboardInterrupt
+        subprocess_logger.critical(f"BaseException in subprocess: {e}", exc_info=True)
         queue.put(e)
 
 
 def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
-    """Runs the provided function on a subprocess with 'ttl' seconds to complete.
+    """
+    Runs the provided function on a subprocess with 'ttl' seconds to complete.
 
     Args:
         func (functools.partial): Function to be run.
@@ -46,20 +74,31 @@ def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
         process.join()
         raise TimeoutError(f"Failed to {func.func.__name__} after {ttl} seconds")
 
-    # Raises an error if the queue is empty. This is fine. It means our subprocess timed out.
-    result = queue.get(block=False)
+    try:
+        # Use a timeout for queue.get as well, to prevent hanging if the child put nothing
+        result = queue.get(timeout=10) # Small timeout to avoid infinite block
+    except multiprocessing.queues.Empty:
+        # This should ideally not happen with the robust _wrapped_func.
+        bt.logging.error(f"Subprocess for {func.func.__name__} terminated without putting result on queue.")
+        raise RuntimeError(f"Subprocess for {func.func.__name__} failed to return a result.")
+    except Exception as e:
+        bt.logging.error(f"Error getting result from subprocess queue for {func.func.__name__}: {e}", exc_info=True)
+        raise
 
-    # If we put an exception on the queue then raise instead of returning.
+    # If we put an exception on the queue then re-raise instead of returning.
     if isinstance(result, Exception):
+        bt.logging.error(f"Exception caught from subprocess for {func.func.__name__}: {result}", exc_info=True)
         raise result
     if isinstance(result, BaseException):
+        bt.logging.critical(f"BaseException caught from subprocess for {func.func.__name__}: {result}", exc_info=True)
         raise Exception(f"BaseException raised in subprocess: {str(result)}")
 
     return result
 
 
 async def run_in_thread(func: functools.partial, ttl: int, name=None) -> Any:
-    """Runs the provided function on a thread with 'ttl' seconds to complete.
+    """
+    Runs the provided function on a thread with 'ttl' seconds to complete.
 
     Args:
         func (functools.partial): Function to be run.
@@ -100,7 +139,8 @@ def save_version(filepath: str, version: int):
 
 
 def random_date(start: datetime, end: datetime, seed: int = None) -> datetime:
-    """Return a random datetime between two datetimes.
+    """
+    Return a random datetime between two datetimes.
 
     Args:
         start (datetime): Start of the range, inclusive.
