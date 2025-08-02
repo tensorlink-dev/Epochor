@@ -231,8 +231,8 @@ class ValidatorState:
     def get_ema_scores(self, competition_id: int):
         return self.ema_tracker.get(competition_id=competition_id)
 
-    def update_ema_scores(self, scores_for_ema: EpsilonFunc, competition_id: int):
-        self.ema_tracker.update(scores_for_ema, competition_id=competition_id)
+    def update_ema_scores(self, scores_for_ema: typing.Dict[int, float], competition_id: int):
+        self.ema_tracker.update(scores_for_ema, competition_id)
 
     def reset_ema_uid(self,uid: int):
         self.ema_tracker.reset_uid( uid=uid)
