@@ -128,7 +128,7 @@ def score_time_series_model(
 
             with torch.inference_mode():
                 preds = model.forecast(
-                    input_ids=batch["inputs_padded"].unsqueeze(-1),
+                    inputs=batch["inputs_padded"].unsqueeze(-1),
                     prediction_length=forecast_len,
                     attention_mask=batch["attention_mask"],
                 )
