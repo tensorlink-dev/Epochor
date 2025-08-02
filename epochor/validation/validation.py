@@ -130,7 +130,7 @@ def score_time_series_model(
             inputs = batch["inputs_padded"].to(device)
             targets = batch["targets_padded"].to(device)
             forecast_len = batch['actual_target_lengths'][0]
-            targets = targets[:forecast_len]
+            targets =  targets[:, :forecast_len]
             logging.debug(f'forecast len : {forecast_len}')
 
             with torch.inference_mode():
