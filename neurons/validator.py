@@ -57,7 +57,7 @@ from epochor.utils.logging import configure_logging,reinitialize_logging
 from bittensor.utils.btlogging.defines import BITTENSOR_LOGGER_NAME
 from bittensor.utils.btlogging.helpers import all_loggers
 
-
+import numpy as np # Import numpy
 
 
 @dataclasses.dataclass
@@ -292,7 +292,12 @@ class Validator:
         # Initialize scoring_metrics to an empty dictionary
         scorings_metrics = {}
         try:
-            scorings_metrics = self._compute_and_set_competition_weights(cur_block, uids, uid_to_state, competition) #fingerprints
+            # Pass raw_losses for each UID to compute_scores
+            uid_to_raw_losses = {uid: state.score_details.get("flat_evaluation", ScoreDetails()).raw_score for uid, state in uid_to_state.items()}
+            # Filter out None values or empty arrays if any
+            uid_to_raw_losses = {uid: losses for uid, losses in uid_to_raw_losses.items() if losses is not None and len(losses) > 0}
+
+            scorings_metrics = self._compute_and_set_competition_weights(cur_block, uids, uid_to_state, competition, uid_to_raw_losses) #fingerprints
         except Exception as e:
             logging.error(f"Error computing and setting competition weights: {e}{traceback.format_exc()}")
             # If an error occurs, scorings_metrics remains an empty dictionary, 
@@ -320,7 +325,7 @@ class Validator:
         self._update_uids_to_eval(competition.id, models_to_keep, active_competition_ids)
         self.state.save()
 
-        self.log_step(competition.id, competition.constraints.epsilon_func, eval_tasks, cur_block, uids, uid_to_state, self._get_uids_to_competition_ids(), seed, data_loaders,  win_rate, scorings_metrics, load_model_perf, compute_loss_perf, load_data_perf)
+        self.log_step(competition.id, epsilon_func, eval_tasks, cur_block, uids, uid_to_state, self._get_uids_to_competition_ids(), seed, data_loaders,  win_rate, scorings_metrics, load_model_perf, compute_loss_perf, load_data_perf)
         self.global_step += 1
 
     def _get_current_block(self) -> int:
@@ -366,15 +371,15 @@ class Validator:
             logging.info(f"Failed to get hash of sync block, using fallback seed: {e}")
             return random.randint(0, 2**32 - 1)
 
-    def _compute_and_set_competition_weights(self, cur_block, uids, uid_to_state, competition):
-        uid_to_score = {uid: state.score for uid, state in uid_to_state.items()}
+    def _compute_and_set_competition_weights(self, cur_block, uids, uid_to_state, competition, uid_to_raw_losses):
+        # uid_to_score = {uid: state.score for uid, state in uid_to_state.items()}
         uid_to_block = {uid: state.block for uid, state in uid_to_state.items()}
        # uid_to_time = {uid: cur_block - state.block for uid, state in uid_to_state.items()}
        # zip(uid_to_time,fingerprints) 
        # time_lower_tri = [uid_to_time .. ]
         # arch_lower_tri = [compare_arch(i,j)]
 
-        scorings_metrics = compute_scores(uids, uid_to_score) #, competition.constraints.epsilon_func, cur_block)
+        scorings_metrics = compute_scores(uids, uid_to_raw_losses) #, competition.constraints.epsilon_func, cur_block)
         # final_score = 'apply_copy_penalty'(logging_metrics[uid]["final_scores_dict"], time_lower_tri, arch_lower_tri, P=0.1)
 
         scores_for_ema = {uid: scorings_metrics["final_scores_dict"][uid] for uid in uids}

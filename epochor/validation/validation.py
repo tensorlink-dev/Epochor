@@ -46,34 +46,53 @@ from epochor.evaluation.evaluation import EVALUATION_BY_COMPETITION
 class ScoreDetails:
     """Details of the score for a model."""
 
-    raw_score: typing.Optional[float] = None
+    raw_score: typing.Optional[np.ndarray] = None # Changed from float to np.ndarray
     norm_score: typing.Optional[float] = None
     weighted_norm_score: typing.Optional[float] = None
     num_samples: int = 0
 
 
-
 def compute_scores(
     uids: typing.List[int],
-    uid_to_score: typing.Dict[int, float],
+    # Changed uid_to_score to uid_to_raw_losses, accepting Dict[int, np.ndarray]
+    uid_to_raw_losses: typing.Dict[int, np.ndarray],
 ) -> typing.Dict[str, typing.Dict[int, float]]:  # Changed return type hint
     """
     Computes the wins and win rate for each model based on loss comparison.
 
     Parameters:
         uids (list): A list of uids to compare.
-        uid_to_score (dict): A dictionary of scores for each uid.
+        uid_to_raw_losses (dict): A dictionary mapping uids to an np.ndarray of raw losses.
 
     Returns:
         tuple: A tuple containing two dictionaries, one for wins and one for win rates.
     """
 
-    # Convert uid_to_score to a list of scores in the order of uids, handling NaNs
-    scores_list = [uid_to_score.get(uid, np.nan) for uid in uids]
-    mat = np.array(scores_list, dtype=float).reshape(len(uids), -1) # Ensure 2D array, even for single score per UID
+    # Initialize mat with NaNs
+    max_num_losses = 0
+    for uid in uids:
+        losses = uid_to_raw_losses.get(uid)
+        if losses is not None and len(losses) > 0:
+            max_num_losses = max(max_num_losses, len(losses))
+
+    if max_num_losses == 0: # Handle case where no losses are present
+        return {
+            "final_scores_dict": {uid: 0.0 for uid in uids},
+            "win_rate_dict": {uid: 0.0 for uid in uids},
+            "agg_gap_dict": {uid: np.nan for uid in uids},
+            "sep_score_dict": {uid: np.nan for uid in uids},
+            "raw_composite_score_dict": {uid: np.nan for uid in uids},
+        }
+
+    mat = np.full((len(uids), max_num_losses), np.nan, dtype=float)
+
+    for i, uid in enumerate(uids):
+        raw_losses = uid_to_raw_losses.get(uid)
+        if raw_losses is not None and len(raw_losses) > 0:
+            mat[i, :len(raw_losses)] = raw_losses
 
     # If there's only one miner or all scores are NaN, we can't compute meaningful statistics
-    if len(uids) == 0 or np.all(np.isnan(mat)) or mat.shape[1] < 2:
+    if len(uids) == 0 or np.all(np.isnan(mat)):
         # Return default values to prevent errors later
         return  {
             "final_scores_dict": {uid: 0.0 for uid in uids},
@@ -169,7 +188,7 @@ def score_time_series_model(
         mean_score = float(np.mean(all_losses_flat))
 
         score_details["flat_evaluation"] = ScoreDetails(
-            raw_score=all_losses_flat,
+            raw_score=all_losses_flat, # This is now correctly typed as np.ndarray
             norm_score=None,
             weighted_norm_score=None,
             num_samples=len(all_losses_flat),
@@ -179,7 +198,7 @@ def score_time_series_model(
     except Exception as e:
         logging.error(f"Error in score_time_series_model: {e}{traceback.format_exc()}")
         # Return a default error score and empty details to prevent unpack error
-        return math.inf, {"error": ScoreDetails(raw_score=math.inf, num_samples=0)}
+        return math.inf, {"error": ScoreDetails(raw_score=np.array([math.inf]), num_samples=0)} # Return np.array for raw_score even on error
 
 
 def compute_competitive_uids(
