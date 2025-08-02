@@ -78,9 +78,14 @@ def compute_scores(
         agg_gap_arr = compute_aggregate_gap(ci_lo, ci_hi) 
         sep_score_arr = normalize_gap_scores(agg_gap_arr)
     except Exception as e:
-        empty_scores = {uid: 0.0 for uid in uids}
-        empty_details = {uid: np.nan for uid in uids}
-        return empty_scores, empty_details, empty_details, empty_details, empty_details
+        logging.error(f"Error computing scores: {e}")
+        return  {
+            "final_scores_dict": {uid: 0.0 for uid in uids},
+            "win_rate_dict": {uid: 0.0 for uid in uids},
+            "agg_gap_dict": {uid: np.nan for uid in uids},
+            "sep_score_dict": {uid: np.nan for uid in uids},
+            "raw_composite_score_dict": {uid: np.nan for uid in uids},
+        }
 
     # Composite score
     raw_composite_score_arr = win_rate_arr * sep_score_arr
@@ -118,7 +123,8 @@ def score_time_series_model(
 
     # Correctly unpack both eval_task and corresponding task_batches
     for eval_task, task_batches in zip(eval_tasks, samples):
-        evaluator = EVALUATION_BY_COMPETITION[eval_task.method_id.value]
+        EvaluatorClass = EVALUATION_BY_COMPETITION[eval_task.method_id.value]
+        evaluator = EvaluatorClass()
 
         for batch in task_batches:  # Not enumerate here, unless you use `i`
             inputs = batch["inputs_padded"].to(device)
