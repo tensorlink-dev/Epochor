@@ -68,7 +68,20 @@ def compute_scores(
         tuple: A tuple containing two dictionaries, one for wins and one for win rates.
     """
 
-    mat = np.stack(list(uid_to_score.values()), axis=0)
+    # Convert uid_to_score to a list of scores in the order of uids, handling NaNs
+    scores_list = [uid_to_score.get(uid, np.nan) for uid in uids]
+    mat = np.array(scores_list, dtype=float).reshape(len(uids), -1) # Ensure 2D array, even for single score per UID
+
+    # If there's only one miner or all scores are NaN, we can't compute meaningful statistics
+    if len(uids) == 0 or np.all(np.isnan(mat)) or mat.shape[1] < 2:
+        # Return default values to prevent errors later
+        return  {
+            "final_scores_dict": {uid: 0.0 for uid in uids},
+            "win_rate_dict": {uid: 0.0 for uid in uids},
+            "agg_gap_dict": {uid: np.nan for uid in uids},
+            "sep_score_dict": {uid: np.nan for uid in uids},
+            "raw_composite_score_dict": {uid: np.nan for uid in uids},
+        }
 
     # Compute components
     try:
@@ -79,7 +92,7 @@ def compute_scores(
         agg_gap_arr = compute_aggregate_gap(ci_lo, ci_hi) 
         sep_score_arr = normalize_gap_scores(agg_gap_arr)
     except Exception as e:
-        logging.error(f"Error computing scores: {e}")
+        logging.error(f"Error computing scores: {e}{traceback.format_exc()}") # Added traceback
         return  {
             "final_scores_dict": {uid: 0.0 for uid in uids},
             "win_rate_dict": {uid: 0.0 for uid in uids},

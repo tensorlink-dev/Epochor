@@ -1,8 +1,8 @@
-"""
-Statistical utilities for Epochor scoring.
+# """
+# Statistical utilities for Epochor scoring.
 
-Includes win-rate, bootstrap CI, CI-gap scoring, and normalization.
-"""
+# Includes win-rate, bootstrap CI, CI-gap scoring, and normalization.
+# """
 
 import numpy as np
 from typing import Tuple, Union # Added Union for the new return type
@@ -57,10 +57,9 @@ def bootstrap_ci(data: np.ndarray, B: int = 2000, alpha: float = 0.05) -> Tuple[
     """
     T = data.shape[0]
     if T < 2:
-        # If only one sample, mean is the sample itself, CI is undefined or point estimate.
-        # Returning mean and NaNs for bounds or mean itself for bounds might be alternatives.
-        # For now, raising an error as CI is not well-defined.
-        raise ValueError("Bootstrap requires at least 2 samples.")
+        # Instead of raising ValueError, return NaNs for CI bounds
+        mean_val = np.nanmean(data) if T > 0 else np.nan
+        return mean_val, np.nan, np.nan # Return mean, nan, nan for consistency
     idx = np.random.randint(0, T, size=(B, T))
     samples = data[idx]
     means = samples.mean(axis=1)
@@ -81,13 +80,11 @@ def compute_ci_bounds(loss_matrix: np.ndarray, B: int = 2000, alpha: float = 0.0
     hi = np.empty(N, dtype=float)
 
     for i in range(N):
-        if T < 2: # Handle cases where a miner might have less than 2 data points
-            lo[i] = np.nanmean(loss_matrix[i]) if T > 0 else np.nan
-            hi[i] = np.nanmean(loss_matrix[i]) if T > 0 else np.nan
-        else:
-            _, l, h = bootstrap_ci(loss_matrix[i], B=B, alpha=alpha)
-            lo[i] = l
-            hi[i] = h
+        # Now bootstrap_ci handles T < 2 by returning NaNs, no need for separate if here
+        # just directly unpack
+        _, l, h = bootstrap_ci(loss_matrix[i], B=B, alpha=alpha)
+        lo[i] = l
+        hi[i] = h
     return lo, hi
 
 
