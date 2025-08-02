@@ -10,7 +10,7 @@ class EvalMethodId(Enum):
     Each member represents a distinct way an evaluation can be performed
     or a specific benchmark that can be run.
     """
-    CRPS_LOSS = 1 
+    CRPS_LOSS = 0 
 
 
 class NormalizationId(Enum):
