@@ -40,49 +40,49 @@ class CRPSEvaluator(BaseEvaluator):
         target = np.asarray(target)
         prediction = np.asarray(prediction)
 
-        # --- Batched case ---
-        if target.ndim == 2:
-            B, T = target.shape
-            
-            # Normalize prediction to (B, T, N)
-            if prediction.ndim == 4:
-                if prediction.shape[2] == 1:
-                    prediction = prediction.squeeze(axis=2) # Remove the 1-sized feature dimension
-                else:
-                    raise ValueError(f"Prediction must be 2D or 3D or 4D with a 1-sized 3rd dimension, got {prediction.shape}")
-            if prediction.ndim == 3:
-                pass
-            elif prediction.ndim == 2:
-                # If prediction is (B, T), assume N=1 ensemble
-                prediction = prediction[..., np.newaxis] # Result: (B, T, 1)
-            else:
-                raise ValueError(f"Prediction must be 2D or 3D, got {prediction.shape}")
+        if target.ndim not in [1, 2]:
+            raise ValueError(f"Target must be 1D or 2D, but got shape {target.shape}")
 
-            if prediction.shape[0] != B or prediction.shape[1] != T:
-                raise ValueError(f"Shape mismatch: target {target.shape}, pred {prediction.shape}")
+        if prediction.ndim not in [2, 3, 4]:
+            raise ValueError(f"Prediction must be 2D, 3D or 4D, but got shape {prediction.shape}")
+
+        # Handle 4D prediction: squeeze out the 1-sized feature dimension
+        if prediction.ndim == 4:
+            if prediction.shape[2] == 1:
+                prediction = prediction.squeeze(axis=2) # Result (B, T, N)
+            else:
+                raise ValueError(f"Prediction 4D shape must have a 1-sized 3rd dimension for squeezing, got {prediction.shape}")
+
+        # Ensure prediction has an explicit ensemble dimension if it's currently (B, T)
+        if prediction.ndim == 2: # This covers (T, N) for single series and (B, T) for batched (N=1)
+            prediction = prediction[..., np.newaxis] # Result (T, N, 1) or (B, T, 1)
+
+        # Now, prediction should be (T, N) or (B, T, N)
+
+        if target.ndim == 2: # Batched case
+            B, T_target = target.shape
+            B_pred, T_pred, N_ensemble = prediction.shape
+
+            if B_pred != B or T_pred != T_target: # This check is crucial
+                raise ValueError(f"Shape mismatch in batched evaluation: target {target.shape}, prediction {prediction.shape}")
 
             # Compute CRPS for each time series in the batch
             batch_scores = []
             for i in range(B):
-                # Each call to crps_ensemble expects (T,) observation and (T, N) forecasts
-                # So, target[i] is (T,) and prediction[i] is (T, N)
+                # crps_ensemble expects observations=(T,) and forecasts=(T, N)
                 series_crps = crps_ensemble(observations=target[i], forecasts=prediction[i])
                 batch_scores.append(np.mean(series_crps)) # Mean CRPS over time steps for this series
             return np.array(batch_scores) # Return array of shape (B,)
 
-        # --- Single-series case (T,) target ---
-        if target.ndim == 1:
-            if prediction.ndim == 1:
-                prediction = prediction[:, np.newaxis] # Add ensemble dimension (N=1)
-            elif prediction.ndim != 2:
-                raise ValueError(f"Prediction must be 1D or 2D for single series, but got {prediction.shape}")
-            if target.shape[0] != prediction.shape[0]:
-                raise ValueError(f"Length mismatch: target {target.shape[0]} vs pred {prediction.shape[0]}")
+        else: # Single-series case (target.ndim == 1)
+            T_target = target.shape[0]
+            T_pred, N_ensemble = prediction.shape
+
+            if T_pred != T_target:
+                raise ValueError(f"Length mismatch in single series evaluation: target {target.shape[0]} vs pred {prediction.shape[0]}")
 
             # For single series, crps_ensemble returns (T,). Average it to a scalar array.
             return np.mean(crps_ensemble(observations=target, forecasts=prediction)) # Returns scalar array ()
-        else:
-            raise ValueError(f"Target must be 1D or 2D, but got {target.shape}")
 
 
 EVALUATION_BY_COMPETITION = {
