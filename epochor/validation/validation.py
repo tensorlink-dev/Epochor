@@ -3,7 +3,7 @@
 # Copyright © 2023 const
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
-# documentation files (the “Software”), to deal in the Software without restriction, including without limitation
+# documentation files (S_tensor“Software”), to deal in the Software without restriction, including without limitation
 # the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
 # and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -160,10 +160,12 @@ def score_time_series_model(
             EvaluatorClass = EVALUATION_BY_COMPETITION[eval_task.method_id.value]
             evaluator = EvaluatorClass()
 
-            for batch in task_batches:  # Not enumerate here, unless you use `i`
+            for i, batch in enumerate(task_batches):  # Added enumerate
                 inputs = batch["inputs_padded"].to(device)
                 targets = batch["targets_padded"].to(device)
                 forecast_len = batch['actual_target_lengths'][0]
+
+                logging.debug(f"DEBUG (batch {i}): inputs shape: {inputs.shape}, targets shape: {targets.shape}, forecast_len: {forecast_len}")
 
                 with torch.inference_mode():
                     preds = model.forecast(
@@ -171,12 +173,16 @@ def score_time_series_model(
                         prediction_length=forecast_len,
                         attention_mask=batch["attention_mask"],
                     )
+                    logging.debug(f"DEBUG (batch {i}): preds shape: {preds.shape}")
+
                     # Pass targets and predictions with their batch and time dimensions intact
                     # Assuming targets has shape (B, T_padded) and preds has shape (B, T_forecast, F, N_ensemble)
                     targets_sliced = targets[:, :forecast_len].cpu().numpy()
                     preds_sliced = preds[:, :forecast_len].cpu().numpy()
+                    logging.debug(f"DEBUG (batch {i}): targets_sliced shape: {targets_sliced.shape}, preds_sliced shape: {preds_sliced.shape}")
 
                     losses = evaluator.evaluate(targets_sliced, preds_sliced)
+                    logging.debug(f"DEBUG (batch {i}): losses: {losses}")
                     all_losses.append(losses)
 
         # Flatten and compute mean
@@ -186,6 +192,7 @@ def score_time_series_model(
             else np.array(all_losses)
         )
         mean_score = float(np.mean(all_losses_flat))
+        logging.debug(f"DEBUG: all_losses_flat shape: {all_losses_flat.shape}, mean_score: {mean_score}")
 
         score_details["flat_evaluation"] = ScoreDetails(
             raw_score=all_losses_flat, # This is now correctly typed as np.ndarray
