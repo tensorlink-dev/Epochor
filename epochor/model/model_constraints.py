@@ -7,6 +7,7 @@ from temporal.models.base_model import  BaseTemporalModel as model_type
 
 from competitions import CompetitionId # Updated import to be from competitions package directly
 from enum import IntEnum # Keep IntEnum for other enums if they are still local
+from competitions.epsilon import EpsilonFunc, FixedEpsilon # Import EpsilonFunc and FixedEpsilon
 
 class ModelConstraints(BaseModel):
     """
@@ -24,6 +25,7 @@ class ModelConstraints(BaseModel):
     model_cls: Type = Field(default=model_cls)
     config_cls: Type = Field(default=config_cls)
     model_type: Type=  Field(default=model_type)
+    epsilon_func: Type[EpsilonFunc] = Field(default_factory=lambda: FixedEpsilon(epsilon=0.0))
 
 class EvalMethodId(IntEnum):
     CRPS_LOSS = 0
