@@ -1,6 +1,7 @@
 import dataclasses
 
 from epochor.model.model_constraints import NormalizationId
+from epochor.evaluation.method import EvalMethodId
 
 @dataclasses.dataclass
 class EvalTask:
@@ -10,7 +11,7 @@ class EvalTask:
     name: str
 
     # The identifier of the evaluation method to use.
-    method_id: int
+    method_id: EvalMethodId
     
     # The identifier of the dataset to evaluate on.
     dataset_id: int

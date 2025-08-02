@@ -84,7 +84,7 @@ class CRPSEvaluator(BaseEvaluator):
         return crps_scores
 
 EVALUATION_BY_COMPETITION = {
-    EvalMethodId.CRPS_LOSS: CRPSEvaluator,
+    EvalMethodId.CRPS_LOSS.value: CRPSEvaluator,
 }
 
 __all__ = ["BaseEvaluator", "CRPSEvaluator", "EVALUATION_BY_COMPETITION"]

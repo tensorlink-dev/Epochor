@@ -118,7 +118,7 @@ def score_time_series_model(
 
     # Correctly unpack both eval_task and corresponding task_batches
     for eval_task, task_batches in zip(eval_tasks, samples):
-        evaluator = EVALUATION_BY_COMPETITION[eval_task.method_id]
+        evaluator = EVALUATION_BY_COMPETITION[eval_task.method_id.value]
 
         for batch in task_batches:  # Not enumerate here, unless you use `i`
             inputs = batch["inputs_padded"].to(device)

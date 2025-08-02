@@ -12,8 +12,7 @@ from epochor.generators.kernel_synth import KernelSynth
 class SyntheticBenchmarkerV1(Benchmarker):
     """
     Generates synthetic time series using KernelSynth, splits them into input/target pairs,
-    prepares padded batches suitable for transformer models, and scores predictions
-    using MSE.
+    prepares padded batches suitable for transformer models.
     """
 
     def __init__(self,
@@ -21,7 +20,7 @@ class SyntheticBenchmarkerV1(Benchmarker):
                  n_series: int = 10,
                  min_input_frac: float = 0.5,
                  max_input_frac: float = 0.95,
-                 padding_value: float = 0.0):
+                 padding_value: float = np.inf):
         """
         Args:
             length: Total length of each full synthetic time series.
