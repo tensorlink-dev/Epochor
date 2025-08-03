@@ -7,52 +7,31 @@ import os
 import random
 from datetime import datetime, timedelta
 from typing import Any, Optional, Sequence
-import sys
 import logging as std_logging # Use the standard logging library
 
 import bittensor as bt
 import asyncio
 
-def _setup_subprocess_logging():
-    """Sets up a simple logger for the subprocess that prints to stderr."""
-    # Remove all handlers from the root logger to prevent conflicts
-    root_logger = std_logging.getLogger()
-    for handler in list(root_logger.handlers):
-        root_logger.removeHandler(handler)
-        try:
-            handler.close()
-        except Exception:
-            pass # Ignore errors
-
-    # Create a new handler that prints to stderr
-    handler = std_logging.StreamHandler(sys.stderr)
-    # Set a specific format for subprocess logs to distinguish them
-    formatter = std_logging.Formatter('%(asctime)s | %(levelname)s | Subprocess | %(message)s')
-    handler.setFormatter(formatter)
-
-    # Re-add the new handler to the root logger
-    root_logger.addHandler(handler)
-    # Set the logging level to DEBUG to capture all messages
-    root_logger.setLevel(std_logging.DEBUG)
-
-
 def _wrapped_func(func: functools.partial, queue: multiprocessing.Queue):
     """
-    Wrapper function to run in a subprocess. It configures logging and puts the
+    Wrapper function to run in a subprocess. It silences the logger and puts the
     result or exception on the queue.
     """
     try:
-        # Set up a simple, isolated logger for this subprocess.
-        _setup_subprocess_logging()
-        
+        # Silence the logger in the subprocess to prevent conflicts with the parent.
+        root_logger = std_logging.getLogger()
+        # Remove any existing handlers
+        for handler in list(root_logger.handlers):
+            root_logger.removeHandler(handler)
+        # Add a NullHandler to discard all log messages.
+        root_logger.addHandler(std_logging.NullHandler())
+
         result = func()
         queue.put(result)
     except Exception as e:
-        # Log the exception within the subprocess before putting it on the queue.
-        std_logging.error(f"Exception in subprocess function {func.func.__name__}: {e}", exc_info=True)
+        # Even with a silent logger, we must pass the exception back to the parent.
         queue.put(e)
     except BaseException as e:
-        std_logging.critical(f"BaseException in subprocess function {func.func.__name__}: {e}", exc_info=True)
         queue.put(e)
 
 
@@ -70,7 +49,6 @@ def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
     """
     ctx = multiprocessing.get_context(mode)
     queue = ctx.Queue()
-    # Note: We are no longer passing the 'config' object here.
     process = ctx.Process(target=_wrapped_func, args=[func, queue])
 
     process.start()
@@ -91,7 +69,6 @@ def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
         raise
 
     if isinstance(result, Exception):
-        # The parent process logs the exception received from the subprocess.
         bt.logging.error(f"Exception caught from subprocess for {func.func.__name__}: {result}", exc_info=True)
         raise result
     if isinstance(result, BaseException):
