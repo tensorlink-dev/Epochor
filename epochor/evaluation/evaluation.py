@@ -1,6 +1,7 @@
 import numpy as np
 from properscoring import crps_ensemble
 from epochor.evaluation.method import EvalMethodId
+from epochor.utils import logging
 
 
 class BaseEvaluator:
@@ -40,6 +41,15 @@ class CRPSEvaluator(BaseEvaluator):
         """
         target = np.asarray(target)
         prediction = np.asarray(prediction)
+
+        # --- Sanitize inputs to replace NaNs/Infs ---
+        if not np.all(np.isfinite(target)):
+            logging.warning("Non-finite values found in target, replacing with 0.")
+            target = np.nan_to_num(target, nan=0.0, posinf=0.0, neginf=0.0)
+
+        if not np.all(np.isfinite(prediction)):
+            logging.warning(f"Non-finite values found in prediction (shape: {prediction.shape}), replacing with 1e9.")
+            prediction = np.nan_to_num(prediction, nan=1e9, posinf=1e9, neginf=-1e9)
 
         # --- Normalize prediction to have 3 dimensions (B, T, N) or 2 dimensions (T, N) ---
         # Handle 4D prediction (B, T, 1, N) -> squeeze out the 1-sized feature dimension
