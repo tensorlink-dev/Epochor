@@ -20,7 +20,7 @@ class SyntheticBenchmarkerV1(Benchmarker):
                  n_series: int = 10,
                  min_input_frac: float = 0.5,
                  max_input_frac: float = 0.95,
-                 padding_value: float = np.inf):
+                 padding_value: float = 0.0):
         """
         Args:
             length: Total length of each full synthetic time series.
