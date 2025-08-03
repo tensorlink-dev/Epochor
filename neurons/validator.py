@@ -191,6 +191,8 @@ class Validator:
             self.weight_setter.stop()
 
     async def run_step(self):
+        self.subtensor.sync()
+        logging.info(f"Subtensor synced, current block is {self.subtensor.block}")
         cur_block = self._get_current_block()
         logging.info(f"Current block: {cur_block}")
         
