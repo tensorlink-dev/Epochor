@@ -231,9 +231,9 @@ class ValidatorState:
     def get_ema_scores(self, competition_id: int):
         return self.ema_tracker.get(competition_id=competition_id)
 
-    def update_ema_scores(self, scores_for_ema: typing.Dict[int, float], competition_id: int):
+    def update_ema_scores(self, scores_for_ema: typing.Dict[int, float], competition_id: int, block: int, uid_to_hotkey: typing.Dict[int, str]):
         for uid, score in scores_for_ema.items():
-            self.ema_tracker.update(competition_id, uid, score)
+            self.ema_tracker.update(competition_id, uid, score, block, uid_to_hotkey[uid])
 
     def reset_ema_uid(self,uid: int):
         self.ema_tracker.reset_uid( uid=uid)
@@ -559,7 +559,6 @@ class ModelManager:
             time.sleep(dt.timedelta(minutes=5).total_seconds())
 
         bt.logging.info("Exiting clean models loop.")
-
 
 
 

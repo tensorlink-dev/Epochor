@@ -318,7 +318,7 @@ class Validator:
         self._update_uids_to_eval(competition.id, models_to_keep, active_competition_ids)
         self.state.save()
 
-        self.log_step(competition.id, epsilon_func, eval_tasks, cur_block, uids, uid_to_state, self._get_uids_to_competition_ids(), seed, data_loaders,  win_rate, scorings_metrics, load_model_perf, compute_loss_perf, load_data_perf)
+        self.log_step(competition=competition, uids=uids, uid_to_state=uid_to_state, scoring_metrics=scorings_metrics)
         self.global_step += 1
 
     def _get_current_block(self) -> int:
@@ -402,32 +402,48 @@ class Validator:
     def _update_uids_to_eval(self, competition_id, uids, active_competitions):
         self.state.update_uids_to_eval(competition_id, uids, active_competitions)
 
-    def log_step(self, competition_id, epsilon_func, eval_tasks, current_block, uids, uid_to_state, uid_to_comp, seed, data_loaders, win_rate, logging_metrics, load_model_perf, compute_loss_perf, load_data_perf):
-        step_log = {"timestamp": time.time(), "competition_id": competition_id, "uids": uids, "uid_data": {}}
+    def log_step(self, competition: Competition, uids: list, uid_to_state: dict, scoring_metrics: dict):
+        step_log = {"timestamp": time.time(), "competition_id": competition.id, "uids": uids, "uid_data": {}}
         
-        sub_comp_weights = self.state.ema_tracker.get_competition_weights(competition_id) # Changed to competition_id
+        final_scores_dict = scoring_metrics.get("final_scores_dict", {})
+        win_rate_dict = scoring_metrics.get("win_rate_dict", {})
+        gap_score_dict = scoring_metrics.get("gap_score_dict", {})
+        raw_loss_dict = scoring_metrics.get("raw_loss_dict", {})
+
+        sub_comp_weights = self.state.ema_tracker.get_competition_weights(competition.id)
         
         for uid in uids:
-            metrics = logging_metrics.get("final_scores_dict", {}).get(uid, {})
-            step_log["uid_data"][str(uid)] = {
+            uid_data = {
                 "uid": uid,
                 "block": uid_to_state[uid].block,
                 "hf": uid_to_state[uid].repo_name,
-                "raw_score": uid_to_state[uid].score, # Use the already computed raw score
-                "ema_score": metrics, # This will be the ema score from the logging_metrics
-                "win_rate": win_rate.get(uid, 0.0),
+                "raw_score": uid_to_state[uid].score,
+                "ema_score": final_scores_dict.get(uid, math.inf),
+                "win_rate": win_rate_dict.get(uid, 0.0),
+                "gap_score": gap_score_dict.get(uid, math.inf),
+                "raw_loss": raw_loss_dict.get(uid, math.inf),
                 "weight": self.weights[uid].item(),
                 "norm_weight": sub_comp_weights[uid].item()
             }
+            step_log["uid_data"][str(uid)] = uid_data
 
         console = Console()
         table = Table(title="Step", expand=True)
-        for col in ["uid", "hf", "raw_score", "ema_score", "win_rate", "weight", "norm_weight", "block"]:
+        
+        columns = ["uid", "hf", "raw_score", "ema_score", "win_rate", "gap_score", "raw_loss", "weight", "norm_weight", "block"]
+        for col in columns:
             table.add_column(col, justify="center")
 
         for uid in uids:
             uid_data = step_log["uid_data"][str(uid)]
-            table.add_row(*[str(round(uid_data.get(col, 0), 4)) if isinstance(uid_data.get(col, 0), float) else str(uid_data.get(col, 0)) for col in ["uid", "hf", "raw_score", "ema_score", "win_rate", "weight", "norm_weight", "block"]])
+            row_values = []
+            for col in columns:
+                value = uid_data.get(col, 0)
+                if isinstance(value, float):
+                    row_values.append(str(round(value, 4)))
+                else:
+                    row_values.append(str(value))
+            table.add_row(*row_values)
         console.print(table)
         
         if self.config.wandb.on and not self.config.offline:
