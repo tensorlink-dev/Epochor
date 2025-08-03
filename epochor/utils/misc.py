@@ -5,6 +5,7 @@ import hashlib
 import multiprocessing
 import os
 import random
+import sys
 from datetime import datetime, timedelta
 from typing import Any, Optional, Sequence
 import logging as std_logging # Use the standard logging library
@@ -14,29 +15,41 @@ import asyncio
 
 def _wrapped_func(func: functools.partial, queue: multiprocessing.Queue):
     """
-    Wrapper function to run in a subprocess. It silences the logger and puts the
-    result or exception on the queue. It then forcefully exits the process.
+    Wrapper function to run in a subprocess. It sets up a dedicated logger,
+    puts the result or exception on the queue, and then forcefully exits.
     """
-    try:
-        # Silence the logger in the subprocess to prevent conflicts with the parent.
-        root_logger = std_logging.getLogger()
-        # Remove any existing handlers
-        for handler in list(root_logger.handlers):
-            root_logger.removeHandler(handler)
-        # Add a NullHandler to discard all log messages.
-        root_logger.addHandler(std_logging.NullHandler())
+    # Set up a dedicated logger for this subprocess to a file.
+    # This is crucial because the main process's logger may not be fork-safe.
+    log_file_path = f"/tmp/subprocess_{os.getpid()}.log"
+    handler = std_logging.FileHandler(log_file_path, mode='w')
+    formatter = std_logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    
+    root_logger = std_logging.getLogger()
+    # Remove any handlers inherited from the parent
+    for h in list(root_logger.handlers):
+        root_logger.removeHandler(h)
+    root_logger.addHandler(handler)
+    root_logger.setLevel(std_logging.INFO)
 
+    # Redirect stdout and stderr to the log file to capture all output.
+    sys.stdout = open(log_file_path, 'a', buffering=1)
+    sys.stderr = open(log_file_path, 'a', buffering=1)
+
+    try:
+        root_logger.info(f"Subprocess started for {func.func.__name__}.")
         result = func()
+        root_logger.info(f"Subprocess for {func.func.__name__} finished successfully.")
         queue.put(result)
     except Exception as e:
-        # Even with a silent logger, we must pass the exception back to the parent.
+        root_logger.error(f"Exception caught in subprocess for {func.func.__name__}: {e}", exc_info=True)
         queue.put(e)
     except BaseException as e:
+        root_logger.critical(f"BaseException caught in subprocess for {func.func.__name__}: {e}", exc_info=True)
         queue.put(e)
     finally:
-        # Forcefully exit the process using os._exit to avoid issues with the
-        # logging queue in the parent process. atexit handlers and other
-        # cleanup routines are not called.
+        root_logger.info(f"Subprocess for {func.func.__name__} exiting.")
+        # Forcefully exit the process to avoid cleanup issues.
         os._exit(0)
 
 
@@ -57,6 +70,7 @@ def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
     process = ctx.Process(target=_wrapped_func, args=[func, queue])
 
     process.start()
+    pid = process.pid # Get PID for logging purposes.
     process.join(timeout=ttl)
 
     if process.is_alive():
@@ -65,7 +79,23 @@ def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
         raise TimeoutError(f"Failed to {func.func.__name__} after {ttl} seconds")
 
     if process.exitcode != 0 and queue.empty():
-        raise RuntimeError(f"Subprocess for {func.func.__name__} exited unexpectedly with code {process.exitcode}.")
+        log_file_path = f"/tmp/subprocess_{pid}.log"
+        error_message = (
+            f"Subprocess for {func.func.__name__} exited unexpectedly with code {process.exitcode}. "
+            f"Check the subprocess log file for details: {log_file_path}"
+        )
+        bt.logging.error(error_message)
+        # To make it easier for the user, let's try to read the log and show the tail.
+        try:
+            with open(log_file_path, "r") as f:
+                log_tail = f.readlines()[-20:]
+            bt.logging.error("Last 20 lines of subprocess log:")
+            for line in log_tail:
+                bt.logging.error(line.strip())
+        except Exception as e:
+            bt.logging.error(f"Could not read subprocess log file: {e}")
+            
+        raise RuntimeError(error_message)
 
     try:
         result = queue.get(timeout=10)
