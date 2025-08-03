@@ -71,7 +71,7 @@ class DiskModelStore(LocalModelStore):
         """Check across all of local storage and delete unreferenced models out of grace period."""
         valid_paths = {
             utils.get_local_model_snapshot_dir(self.base_dir, hk, mid)
-            for hk, mids in valid_models_by_hotkey.items() for mid in mids
+            for hk, mid in valid_models_by_hotkey.items()
         }
 
         miners_dir = Path(utils.get_local_miners_dir(self.base_dir))
