@@ -320,7 +320,7 @@ class Validator:
         self._update_uids_to_eval(competition.id, models_to_keep, active_competition_ids)
         self.state.save()
 
-        self.log_step(competition=competition, uids=uids, uid_to_state=uid_to_state, scoring_metrics=scorings_metrics)
+        self.log_step(competition=competition, uids=uids, uid_to_state=uid_to_state, scoring_metrics=scorings_metrics,seed=seed)
         self.global_step += 1
 
     def _get_current_block(self) -> int:
@@ -414,7 +414,7 @@ class Validator:
     def _update_uids_to_eval(self, competition_id, uids, active_competitions):
         self.state.update_uids_to_eval(competition_id, uids, active_competitions)
 
-    def log_step(self, competition: Competition, uids: list, uid_to_state: dict, scoring_metrics: dict):
+    def log_step(self, competition: Competition, uids: list, uid_to_state: dict, scoring_metrics: dict,seed:float):
         step_log = {"timestamp": time.time(), "competition_id": competition.id, "uids": uids, "uid_data": {}}
         
         final_scores_dict = scoring_metrics.get("final_scores_dict", {})
@@ -435,14 +435,15 @@ class Validator:
                 "gap_score": gap_score_dict.get(uid, math.inf),
                 "raw_loss": raw_loss_dict.get(uid, math.inf),
                 "weight": self.weights[uid].item(),
-                "norm_weight": sub_comp_weights[uid].item()
+                "norm_weight": sub_comp_weights[uid].item(),
+                'seed': seed,
             }
             step_log["uid_data"][str(uid)] = uid_data
 
         console = Console()
         table = Table(title="Step", expand=True)
         
-        columns = ["uid", "hf", "raw_score", "ema_score", "win_rate", "gap_score", "raw_loss", "weight", "norm_weight", "block"]
+        columns = ["uid","seed", "hf", "raw_score", "ema_score", "win_rate", "gap_score", "raw_loss", "weight", "norm_weight", "block"]
         for col in columns:
             table.add_column(col, justify="center")
 
