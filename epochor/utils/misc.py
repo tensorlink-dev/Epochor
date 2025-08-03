@@ -7,41 +7,62 @@ import os
 import random
 from datetime import datetime, timedelta
 from typing import Any, Optional, Sequence
+import sys
+import logging as std_logging # Use the standard logging library
 
 import bittensor as bt
 import asyncio
-from epochor.utils.logging import configure_logging # Use the specific configure_logging
+
+def _setup_subprocess_logging():
+    """Sets up a simple logger for the subprocess that prints to stderr."""
+    # Remove all handlers from the root logger to prevent conflicts
+    root_logger = std_logging.getLogger()
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass # Ignore errors
+
+    # Create a new handler that prints to stderr
+    handler = std_logging.StreamHandler(sys.stderr)
+    # Set a specific format for subprocess logs to distinguish them
+    formatter = std_logging.Formatter('%(asctime)s | %(levelname)s | Subprocess | %(message)s')
+    handler.setFormatter(formatter)
+
+    # Re-add the new handler to the root logger
+    root_logger.addHandler(handler)
+    # Set the logging level to DEBUG to capture all messages
+    root_logger.setLevel(std_logging.DEBUG)
 
 
-def _wrapped_func(func: functools.partial, queue: multiprocessing.Queue, config: bt.config):
+def _wrapped_func(func: functools.partial, queue: multiprocessing.Queue):
     """
     Wrapper function to run in a subprocess. It configures logging and puts the
     result or exception on the queue.
     """
     try:
-        # Re-configure logging in the subprocess.
-        if config:
-            configure_logging(config)
+        # Set up a simple, isolated logger for this subprocess.
+        _setup_subprocess_logging()
         
         result = func()
         queue.put(result)
     except Exception as e:
-        # Any exception from `func` is caught and put on the queue.
-        # The parent process will be responsible for logging it.
+        # Log the exception within the subprocess before putting it on the queue.
+        std_logging.error(f"Exception in subprocess function {func.func.__name__}: {e}", exc_info=True)
         queue.put(e)
     except BaseException as e:
-        # Catch critical errors like KeyboardInterrupt.
+        std_logging.critical(f"BaseException in subprocess function {func.func.__name__}: {e}", exc_info=True)
         queue.put(e)
 
 
-def run_in_subprocess(func: functools.partial, ttl: int, config: bt.config, mode="fork") -> Any:
+def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
     """
     Runs the provided function on a subprocess with 'ttl' seconds to complete.
 
     Args:
         func (functools.partial): Function to be run.
         ttl (int): How long to try for in seconds.
-        config (bt.config): The bittensor config object for logging.
         mode (str): Mode by which the multiprocessing context is obtained. Default to fork for pickling.
 
     Returns:
@@ -49,7 +70,8 @@ def run_in_subprocess(func: functools.partial, ttl: int, config: bt.config, mode
     """
     ctx = multiprocessing.get_context(mode)
     queue = ctx.Queue()
-    process = ctx.Process(target=_wrapped_func, args=[func, queue, config])
+    # Note: We are no longer passing the 'config' object here.
+    process = ctx.Process(target=_wrapped_func, args=[func, queue])
 
     process.start()
     process.join(timeout=ttl)
@@ -69,6 +91,7 @@ def run_in_subprocess(func: functools.partial, ttl: int, config: bt.config, mode
         raise
 
     if isinstance(result, Exception):
+        # The parent process logs the exception received from the subprocess.
         bt.logging.error(f"Exception caught from subprocess for {func.func.__name__}: {result}", exc_info=True)
         raise result
     if isinstance(result, BaseException):

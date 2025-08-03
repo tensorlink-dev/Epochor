@@ -272,7 +272,7 @@ class Validator:
                                 self.config.device, 
                                 seed
                             ),
-                            ttl=550, config=self.config, mode="spawn" # Pass config here
+                            ttl=550, mode="spawn"
                         )
                     del model_i
                 except Exception:
