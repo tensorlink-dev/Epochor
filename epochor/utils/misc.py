@@ -15,7 +15,7 @@ import asyncio
 def _wrapped_func(func: functools.partial, queue: multiprocessing.Queue):
     """
     Wrapper function to run in a subprocess. It silences the logger and puts the
-    result or exception on the queue.
+    result or exception on the queue. It then forcefully exits the process.
     """
     try:
         # Silence the logger in the subprocess to prevent conflicts with the parent.
@@ -33,6 +33,11 @@ def _wrapped_func(func: functools.partial, queue: multiprocessing.Queue):
         queue.put(e)
     except BaseException as e:
         queue.put(e)
+    finally:
+        # Forcefully exit the process using os._exit to avoid issues with the
+        # logging queue in the parent process. atexit handlers and other
+        # cleanup routines are not called.
+        os._exit(0)
 
 
 def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
@@ -58,6 +63,9 @@ def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
         process.terminate()
         process.join()
         raise TimeoutError(f"Failed to {func.func.__name__} after {ttl} seconds")
+
+    if process.exitcode != 0 and queue.empty():
+        raise RuntimeError(f"Subprocess for {func.func.__name__} exited unexpectedly with code {process.exitcode}.")
 
     try:
         result = queue.get(timeout=10)
