@@ -53,6 +53,7 @@ from epochor.validation.validation import  score_time_series_model, ScoreDetails
 from torch.utils.data import Dataset, DataLoader
 
 from epochor.utils.logging import configure_logging,reinitialize_logging
+from epochor.validation.ema_tracker import CompetitionEMATracker
 
 from bittensor.utils.btlogging.defines import BITTENSOR_LOGGER_NAME
 from bittensor.utils.btlogging.helpers import all_loggers
@@ -303,7 +304,7 @@ class Validator:
 
         tracker_competition_weights = self.state.ema_tracker.get_competition_weights(competition.id)
         model_prioritization = {
-            uid: (1 + tracker_competition_weights[uid].item()) if tracker_competition_weights[uid].item() >= 0.001 else win_rate.get(uid, 0.0)
+            uid: (1 + tracker_competition_weights[uid].item()) if uid < len(tracker_competition_weights) and tracker_competition_weights[uid].item() >= 0.001 else win_rate.get(uid, 0.0)
             for uid in uids
         }
         models_to_keep = set(sorted(model_prioritization, key=model_prioritization.get, reverse=True)[: self.config.sample_min])
@@ -334,6 +335,12 @@ class Validator:
     def _on_subnet_metagraph_updated(self, metagraph: bt.metagraph, netuid: int):
         if netuid != self.config.netuid: return
         with self.metagraph_lock:
+            # Check if the number of neurons has changed.
+            if len(self.metagraph.uids) != len(metagraph.uids):
+                # Re-initialize the ema_tracker with the new number of neurons.
+                self.state.ema_tracker = CompetitionEMATracker(num_neurons=len(metagraph.uids))
+                logging.info("Re-initialized CompetitionEMATracker due to a change in the number of neurons.")
+
             new_hotkeys = set(metagraph.hotkeys)
             added = new_hotkeys - self.known_hotkeys
             if added:

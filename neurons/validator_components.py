@@ -229,7 +229,7 @@ class ValidatorState:
         return pending_uid_count, current_uid_count
 
     def get_ema_scores(self, competition_id: int):
-        return self.ema_tracker.get(competition_id=competition_id)
+        return self.ema_tracker.get(competition_id)
 
     def update_ema_scores(self, scores_for_ema: typing.Dict[int, float], competition_id: int, block: int, uid_to_hotkey: typing.Dict[int, str]):
         for uid, score in scores_for_ema.items():
