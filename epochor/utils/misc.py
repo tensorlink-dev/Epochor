@@ -18,8 +18,7 @@ def _wrapped_func(func: functools.partial, queue: multiprocessing.Queue):
     Wrapper function to run in a subprocess. It sets up a dedicated logger,
     puts the result or exception on the queue, and then forcefully exits.
     """
-    # Set up a dedicated logger for this subprocess to a file.
-    # This is crucial because the main process's logger may not be fork-safe.
+    # Use process ID to create a unique log file name.
     log_file_path = f"/tmp/subprocess_{os.getpid()}.log"
     handler = std_logging.FileHandler(log_file_path, mode='w')
     formatter = std_logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -56,64 +55,49 @@ def _wrapped_func(func: functools.partial, queue: multiprocessing.Queue):
 def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
     """
     Runs the provided function on a subprocess with 'ttl' seconds to complete.
-
-    Args:
-        func (functools.partial): Function to be run.
-        ttl (int): How long to try for in seconds.
-        mode (str): Mode by which the multiprocessing context is obtained. Default to fork for pickling.
-
-    Returns:
-        Any: The value returned by 'func'
+    Includes robust logging and cleanup.
     """
     ctx = multiprocessing.get_context(mode)
     queue = ctx.Queue()
     process = ctx.Process(target=_wrapped_func, args=[func, queue])
 
     process.start()
-    pid = process.pid # Get PID for logging purposes.
-    process.join(timeout=ttl)
-
-    if process.is_alive():
-        process.terminate()
-        process.join()
-        raise TimeoutError(f"Failed to {func.func.__name__} after {ttl} seconds")
-
-    if process.exitcode != 0 and queue.empty():
-        log_file_path = f"/tmp/subprocess_{pid}.log"
-        error_message = (
-            f"Subprocess for {func.func.__name__} exited unexpectedly with code {process.exitcode}. "
-            f"Check the subprocess log file for details: {log_file_path}"
-        )
-        bt.logging.error(error_message)
-        # To make it easier for the user, let's try to read the log and show the tail.
-        try:
-            with open(log_file_path, "r") as f:
-                log_tail = f.readlines()[-20:]
-            bt.logging.error("Last 20 lines of subprocess log:")
-            for line in log_tail:
-                bt.logging.error(line.strip())
-        except Exception as e:
-            bt.logging.error(f"Could not read subprocess log file: {e}")
-            
-        raise RuntimeError(error_message)
+    pid = process.pid
+    log_file_path = f"/tmp/subprocess_{pid}.log"
 
     try:
+        process.join(timeout=ttl)
+
+        if process.is_alive():
+            process.terminate()
+            process.join()
+            raise TimeoutError(f"Failed to {func.func.__name__} after {ttl} seconds")
+
+        if process.exitcode != 0 and queue.empty():
+            error_message = f"Subprocess for {func.func.__name__} exited unexpectedly with code {process.exitcode}."
+            if os.path.exists(log_file_path):
+                with open(log_file_path, "r") as f:
+                    log_content = f.read()
+                error_message += f"\n--- Subprocess Log (from {log_file_path}) ---\n{log_content}\n--- End Subprocess Log ---"
+            else:
+                error_message += " Subprocess log file not found."
+            
+            bt.logging.error(error_message)
+            raise RuntimeError(f"Subprocess for {func.func.__name__} failed. See logs for details.")
+
         result = queue.get(timeout=10)
-    except multiprocessing.queues.Empty:
-        bt.logging.error(f"Subprocess for {func.func.__name__} terminated without putting result on queue.")
-        raise RuntimeError(f"Subprocess for {func.func.__name__} failed to return a result.")
-    except Exception as e:
-        bt.logging.error(f"Error getting result from subprocess queue for {func.func.__name__}: {e}", exc_info=True)
-        raise
 
-    if isinstance(result, Exception):
-        bt.logging.error(f"Exception caught from subprocess for {func.func.__name__}: {result}", exc_info=True)
-        raise result
-    if isinstance(result, BaseException):
-        bt.logging.critical(f"BaseException caught from subprocess for {func.func.__name__}: {result}", exc_info=True)
-        raise Exception(f"BaseException raised in subprocess: {str(result)}")
+        if isinstance(result, Exception):
+            raise result
+        if isinstance(result, BaseException):
+            raise Exception(f"BaseException from subprocess: {result}")
 
-    return result
+        return result
+
+    finally:
+        # Always clean up the temporary log file.
+        if os.path.exists(log_file_path):
+            os.remove(log_file_path)
 
 
 async def run_in_thread(func: functools.partial, ttl: int, name=None) -> Any:
