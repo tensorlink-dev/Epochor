@@ -419,8 +419,8 @@ class Validator:
         
         final_scores_dict = scoring_metrics.get("final_scores_dict", {})
         win_rate_dict = scoring_metrics.get("win_rate_dict", {})
-        gap_score_dict = scoring_metrics.get("gap_score_dict", {})
-        raw_loss_dict = scoring_metrics.get("raw_loss_dict", {})
+        gap_score_dict = scoring_metrics.get("sep_score_dict", {})
+        raw_loss_dict = scoring_metrics.get("raw_composite_score_dict", {})
 
         sub_comp_weights = self.state.ema_tracker.get_competition_weights(competition.id)
         
