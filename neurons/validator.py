@@ -376,7 +376,11 @@ class Validator:
         # final_score = 'apply_copy_penalty'(logging_metrics[uid]["final_scores_dict"], time_lower_tri, arch_lower_tri, P=0.1)
 
         scores_for_ema = {uid: scorings_metrics["final_scores_dict"][uid] for uid in uids}
-        self.state.update_ema_scores(scores_for_ema, competition.id)
+
+        # Get uid_to_hotkey mapping
+        uid_to_hotkey = {uid: self.metagraph.hotkeys[uid] for uid in uids}
+
+        self.state.update_ema_scores(scores_for_ema, competition.id, cur_block, uid_to_hotkey)
         scores = self.state.get_ema_scores(competition.id)
         
         top_uid = max(scores, key=scores.get, default=None)
