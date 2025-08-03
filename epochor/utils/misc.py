@@ -85,7 +85,7 @@ def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
             bt.logging.error(error_message)
             raise RuntimeError(f"Subprocess for {func.func.__name__} failed. See logs for details.")
 
-        result = queue.get(timeout=10)
+        result = queue.get(timeout=60) # Increased timeout to 60 seconds
 
         if isinstance(result, Exception):
             raise result
@@ -95,10 +95,10 @@ def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
         return result
 
     finally:
-        # Always clean up the temporary log file.
+        # Log files are no longer deleted automatically.
+        # You can view them in the /tmp/ directory.
         if os.path.exists(log_file_path):
-            os.remove(log_file_path)
-
+            bt.logging.info(f"Subprocess log file available at: {log_file_path}")
 
 async def run_in_thread(func: functools.partial, ttl: int, name=None) -> Any:
     """
