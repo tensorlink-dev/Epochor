@@ -451,6 +451,10 @@ class Validator:
             uid_data = step_log["uid_data"][str(uid)]
             row_values = []
             for col in columns:
+                if col in ["gap_score", "raw_loss", "ema_score"]:
+                    table.add_column(col, justify="center", no_wrap=True)
+                else:
+                    table.add_column(col, justify="center")
                 value = uid_data.get(col, 0)
                 if isinstance(value, float):
                     row_values.append(str(round(value, 4)))
