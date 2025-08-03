@@ -9,6 +9,7 @@ import sys
 from datetime import datetime, timedelta
 from typing import Any, Optional, Sequence
 import logging as std_logging # Use the standard logging library
+import queue # stdlib queue.Empty
 
 import bittensor as bt
 import asyncio
@@ -16,7 +17,7 @@ import asyncio
 def _wrapped_func(func: functools.partial, queue: multiprocessing.Queue):
     """
     Wrapper function to run in a subprocess. It sets up a dedicated logger,
-    puts the result or exception on the queue, and then forcefully exits.
+    puts the result or exception on the queue, and then exits.
     """
     # Use process ID to create a unique log file name.
     log_file_path = f"/tmp/subprocess_{os.getpid()}.log"
@@ -48,57 +49,48 @@ def _wrapped_func(func: functools.partial, queue: multiprocessing.Queue):
         queue.put(e)
     finally:
         root_logger.info(f"Subprocess for {func.func.__name__} exiting.")
-        # Forcefully exit the process to avoid cleanup issues.
-        os._exit(0)
+        # return from _wrapped_func, let the Process terminate normally
 
 
 def run_in_subprocess(func: functools.partial, ttl: int, mode="fork") -> Any:
-    """
-    Runs the provided function on a subprocess with 'ttl' seconds to complete.
-    Includes robust logging and cleanup.
-    """
-    ctx = multiprocessing.get_context(mode)
+    ctx   = multiprocessing.get_context(mode)
     queue = ctx.Queue()
-    process = ctx.Process(target=_wrapped_func, args=[func, queue])
-
-    process.start()
-    pid = process.pid
-    log_file_path = f"/tmp/subprocess_{pid}.log"
+    proc  = ctx.Process(target=_wrapped_func, args=[func, queue])
+    proc.start()
+    pid = proc.pid
+    log_file = f"/tmp/subprocess_{pid}.log"
 
     try:
-        process.join(timeout=ttl)
+        proc.join(timeout=ttl)
+        if proc.is_alive():
+            proc.terminate(); proc.join()
+            raise TimeoutError(f"Timeout ({ttl}s) running {func.func.__name__}")
 
-        if process.is_alive():
-            process.terminate()
-            process.join()
-            raise TimeoutError(f"Failed to {func.func.__name__} after {ttl} seconds")
-
-        if process.exitcode != 0 and queue.empty():
-            error_message = f"Subprocess for {func.func.__name__} exited unexpectedly with code {process.exitcode}."
-            if os.path.exists(log_file_path):
-                with open(log_file_path, "r") as f:
-                    log_content = f.read()
-                error_message += f"\n--- Subprocess Log (from {log_file_path}) ---\n{log_content}\n--- End Subprocess Log ---"
+        # Now child has exited (exitcode may be zero)
+        try:
+            result = queue.get(timeout=5)
+        except queue.Empty:
+            # nothing came back
+            if os.path.exists(log_file):
+                with open(log_file) as f:
+                    logs = f.read()
             else:
-                error_message += " Subprocess log file not found."
-            
-            bt.logging.error(error_message)
-            raise RuntimeError(f"Subprocess for {func.func.__name__} failed. See logs for details.")
+                logs = "<no log file found>"
+            raise RuntimeError(
+                f"No result from subprocess {func.func.__name__} (exitcode={proc.exitcode}).\n"
+                f"Subprocess logs:\n{logs}"
+            )
 
-        result = queue.get(timeout=60) # Increased timeout to 60 seconds
-
+        # If the child explicitly sent an Exception, re-raise it here
         if isinstance(result, Exception):
             raise result
-        if isinstance(result, BaseException):
-            raise Exception(f"BaseException from subprocess: {result}")
 
         return result
 
     finally:
-        # Log files are no longer deleted automatically.
-        # You can view them in the /tmp/ directory.
-        if os.path.exists(log_file_path):
-            bt.logging.info(f"Subprocess log file available at: {log_file_path}")
+        if os.path.exists(log_file):
+            bt.logging.info(f"See subprocess log: {log_file}")
+
 
 async def run_in_thread(func: functools.partial, ttl: int, name=None) -> Any:
     """
