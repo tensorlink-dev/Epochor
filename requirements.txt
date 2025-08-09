@@ -6,8 +6,11 @@ torch>=2
 numpy>=1
 setuptools>=68
 taoverse
-#temporal 
 properscoring
 pytest-socket
-
 keylimiter
+temporal
+huggingface_hub
+matplotlib
+pandas
+wandb
