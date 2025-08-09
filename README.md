@@ -1,20 +1,41 @@
 <div align="center">
-    <img src="docs/assets/epochor_logo.png#gh-dark-mode-only" width="300px">
-    <img src="docs/assets/epochor_logo.png#gh-light-mode-only" width="300px">
+    <img src="docs/assets/epochor_logo.png#gh-dark-mode-only" width="300px">
+    <img src="docs/assets/epochor_logo.png#gh-light-mode-only" width="300px">
 </div>
 
-# Epochor Subnet
+# Epochor Subnet | SN13
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Our Mission
-Our mission is to democratize temporal intelligence by building an open-source, decentralized platform for time-series modeling and forecasting—empowering anyone, anywhere, to develop, share, and deploy state-of-the-art predictive models across industries and domains. We strive to catalyze collective innovation in time-series AI, ensuring transparent, reproducible, and incentive-aligned progress toward robust, generalist temporal reasoning for the benefit of all.
+Our mission is to incentivize and democratize temporal intelligence. We are building an open-source, decentralized platform for time-series models that empowers anyone, anywhere, to develop and share state-of-the-art predictive models. By fostering collective innovation, we aim to ensure transparent, reproducible, and incentive-aligned progress towards robust, generalist temporal reasoning for the economic benefit of all.
+
+---
 
 ## 📜 Overview
 
-Epochor is a Bittensor subnet that evaluates and ranks time-series models on both synthetic and real-world datasets, benchmarking them against competition-specific metrics—beginning with probabilistic forecasting via CRPS—and aggregating results to identify the leader. Inspired by Pretrain’s winner-takes-all scoring, it awards tokens exclusively to the top models, driving continual innovation and refinement of robust, general-purpose temporal forecasting systems.
+Epochor is a Bittensor subnet that **incentivizes the creation of foundational time-series models**. It evaluates and ranks these models on a diverse range of synthetic and real-world datasets, benchmarking their performance on competition-specific metrics like probabilistic forecasting (via CRPS). By aggregating results and **exclusively rewarding the top-performing miner** in each competition, Epochor drives relentless innovation towards the development of powerful, general-purpose temporal AI.
 
-Think of Epochor as Pretrain for time series models.
+This codebase is inspired by and builds upon the work of the [Pretrain Subnet](https://github.com/opentensor/pretrain).
+
+---
+
+## ✨ Key Features & Design Principles
+
+Epochor's design incorporates several key features to ensure a fair, competitive, and exploitation-resistant environment.
+
+### 🛡️ Sybil Resistance
+The subnet awards incentive exclusively to the **#1 ranked miner** in any given competition. This "winner-takes-all" mechanism makes Sybil attacks economically unviable. Running multiple, mediocre nodes (a common Sybil strategy) yields zero rewards, forcing participants to concentrate all their resources into a single, high-quality model with a genuine chance of winning.
+
+### 💡 Innovation Over Imitation
+To prevent simple model plagiarism, a "challenger" model must demonstrate a **significant performance improvement** over the current leader to claim the top spot. This "clonal penalty" means that merely copying the leading architecture is not enough. Miners are forced to introduce novel techniques, data, or architectural improvements, promoting true innovation and a diverse exploration of the model parameter space.
+
+### 🧠 Zero-Shot Generalization
+Models are evaluated on a **broad and dynamically changing set of validation data** drawn from numerous real-world domains. This is like a "time-series decathlon" where miners don't know which challenge is next. This method tests the model's fundamental, **zero-shot forecasting ability**, making it impossible to overfit to a narrow dataset and ensuring that rewarded models are truly generalist.
+
+### ⚙️ Standardized Architecture
+All models must be built using **[Temporal](https://github.com/your-repo/temporal)**, our sister package for time-series modeling in PyTorch. This requirement ensures interoperability, simplifies the validation process, and creates a level playing field for all miners, allowing for the fair and seamless integration of new features as the subnet evolves.
+ 
 
 ## 🚀 Quick Start
 
