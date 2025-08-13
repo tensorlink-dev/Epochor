@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Type, Dict, List
 from dataclasses import dataclass, field
 from temporal.models.builder import build_time_series_transformer as model_cls
-from temporal.configs.transformer_config import  TransformerTimeSeriesConfig as config_cls
+from temporal.configs.transformer_model_config import TransformerTimeSeriesConfig as config_cls
 from temporal.models.base_model import  BaseTemporalModel as model_type
 
 from competitions import CompetitionId # Updated import to be from competitions package directly
