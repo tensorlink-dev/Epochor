@@ -357,7 +357,7 @@ class Validator:
         run_id = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         name = f"validator-{self.uid}-{run_id}"
         self.wandb_run = wandb.init(
-            name=name, project=self.config.wandb_project, entity="macrocosmos",
+            name=name, project=self.config.wandb_project, entity="tensor-link",
             config={"uid": self.uid, "hotkey": self.wallet.hotkey.ss58_address, "run_name": run_id, "version": constants.__spec_version__, "type": "validator"},
             allow_val_change=True
         )
