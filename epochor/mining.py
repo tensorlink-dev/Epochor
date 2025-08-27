@@ -17,15 +17,17 @@
 # DEALINGS IN THE SOFTWARE.
 
 import os
-import time
+import asyncio
+import tempfile
 from dataclasses import replace
 from typing import Optional, Union
 
 import bittensor as bt
 import huggingface_hub
+from huggingface_hub import snapshot_download
 import torch
 
-from competitions.competitions import CompetitionId # Updated import
+from competitions.competitions import CompetitionId  # Updated import
 from epochor.model.model_constraints import Competition, MODEL_CONSTRAINTS_BY_COMPETITION_ID
 from epochor.utils import logging
 import constants
@@ -33,12 +35,12 @@ import constants
 from epochor.model import model_utils
 from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.base_metadata_model_store import ModelMetadataStore
-from epochor.model.model_data import Model, ModelId, ModelMetadata
-from epochor.utils.hashing import get_hash_of_two_strings
+from epochor.model.model_data import Model, ModelId, ModelMetadata, MAX_METADATA_BYTES
+from epochor.utils.hashing import get_hash_of_two_strings, hash_directory
 from epochor.model.storage.hf_model_store import HuggingFaceModelStore
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
 from temporal.utils.hf_accessors import save_hf, load_hf
-from temporal.models.base_model import  BaseTemporalModel
+from temporal.models.base_model import BaseTemporalModel
 
 
 def model_path(base_dir: str, run_id: str) -> str:
@@ -65,11 +67,10 @@ async def push(
         repo (str): The repo to push to. Must be in format "namespace/name".
         competition_id (CompetitionId): The competition the miner is participating in.
         wallet (bt.wallet): The wallet of the Miner uploading the model.
-        retry_delay_secs (int): The number of seconds to wait before retrying to push the model to the chain.
+        retry_delay_secs (int): Seconds to wait before retrying to push the model to the chain.
         update_repo_visibility (bool): Whether to make the repo public after pushing the model.
-        metadata_store (Optional[ModelMetadataStore]): The metadata store. If None, defaults to writing to the
-            chain.
-        remote_model_store (Optional[RemoteModelStore]): The remote model store. If None, defaults to writing to HuggingFace
+        metadata_store (Optional[ModelMetadataStore]): Where to store chain metadata (default: chain).
+        remote_model_store (Optional[RemoteModelStore]): Remote store (default: Hugging Face).
     """
     logging.info("Pushing model")
 
@@ -92,7 +93,8 @@ async def push(
 
     # First upload the model to Hugging Face.
     namespace, name = model_utils.validate_hf_repo_id(repo)
-    model_id = ModelId(namespace=namespace, name=name, competition_id=competition_id)
+    # IMPORTANT: ModelId expects an int for competition_id
+    model_id = ModelId(namespace=namespace, name=name, competition_id=competition_id.value)
 
     logging.debug("Started uploading model to hugging face...")
     model_id = await remote_model_store.upload_model(
@@ -101,23 +103,29 @@ async def push(
 
     logging.info("Uploaded model to hugging face.")
 
+    # Bind snapshot hash to hotkey to prevent copy attacks
     secure_hash = get_hash_of_two_strings(model_id.hash, wallet.hotkey.ss58_address)
     model_id = replace(model_id, secure_hash=secure_hash)
 
-    logging.info(f"Now committing to the chain with model_id: {model_id}")
+    compressed = model_id.to_compressed_str()
+    logging.info("Now committing to the chain with model_id: %s", compressed)
+    logging.info(
+        "BYTES → repo_id=%d | commit=%d | secure=%d | model_id=%d (cap=%d)",
+        len(repo.encode()),
+        len((model_id.commit or "").encode()),
+        len((model_id.secure_hash or "").encode()),
+        len(compressed.encode()),
+        MAX_METADATA_BYTES,
+    )
 
-    # We can only commit to the chain every 20 minutes, so run this in a loop, until
-    # successful.
+    # We can only commit to the chain every 20 minutes, so run this in a loop, until successful.
     while True:
         try:
             await metadata_store.store_model_metadata(
                 wallet.hotkey.ss58_address, model_id
             )
 
-            logging.info(
-                "Wrote model metadata to the chain. Checking we can read it back..."
-            )
-
+            logging.info("Wrote model metadata to the chain. Checking we can read it back...")
             logging.debug("Retrieving model's UID...")
 
             uid = subtensor.get_uid_for_hotkey_on_subnet(
@@ -133,7 +141,8 @@ async def push(
                 or model_metadata.id.to_compressed_str() != model_id.to_compressed_str()
             ):
                 logging.error(
-                    f"Failed to read back model metadata from the chain. Expected: {model_id}, got: {model_metadata}"
+                    "Failed to read back model metadata from the chain. Expected: %s, got: %s",
+                    model_id, model_metadata
                 )
                 raise ValueError(
                     f"Failed to read back model metadata from the chain. Expected: {model_id}, got: {model_metadata}"
@@ -142,9 +151,10 @@ async def push(
             logging.info("Committed model to the chain.")
             break
         except Exception as e:
-            logging.error(f"Failed to advertise model on the chain: {e}")
-            logging.error(f"Retrying in {retry_delay_secs} seconds...")
-            time.sleep(retry_delay_secs)
+            logging.error("Failed to advertise model on the chain: %s", e)
+            logging.error("Retrying in %d seconds...", retry_delay_secs)
+            # Do not block the event loop in async funcs
+            await asyncio.sleep(retry_delay_secs)
 
     if update_repo_visibility:
         logging.debug("Making repo public.")
@@ -176,6 +186,9 @@ async def register(
     if subtensor is None:
         subtensor = bt.subtensor()
 
+    if netuid is None:
+        raise ValueError("netuid must be provided to register()")
+
     if metadata_store is None:
         metadata_store = ChainModelMetadataStore(
             subtensor=subtensor, subnet_uid=netuid, wallet=wallet
@@ -190,7 +203,7 @@ async def register(
         competition_id=competition_id.value,
     )
 
-    # 2) Pull down that exact tree and compute secure_hash
+    # 2) Pull down that exact tree and compute secure_hash if not provided
     if secure_hash is None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tree_path = snapshot_download(
@@ -202,10 +215,22 @@ async def register(
             secure_hash = hash_directory(tree_path)
         logging.info("Computed secure_hash=%s for %s@%s", secure_hash, repo_id, commit_hash)
 
+    if not secure_hash:
+        raise ValueError("secure_hash could not be computed or is empty")
+
     # 3) Embed that into the ModelId
     model_id = replace(model_id, secure_hash=secure_hash)
 
-    logging.info("Final model_id to store: %s", model_id.to_compressed_str())
+    compressed = model_id.to_compressed_str()
+    logging.info("Final model_id to store: %s", compressed)
+    logging.info(
+        "BYTES → repo_id=%d | commit=%d | secure=%d | model_id=%d (cap=%d)",
+        len(repo_id.encode()),
+        len(commit_hash.encode()),
+        len(secure_hash.encode()),
+        len(compressed.encode()),
+        MAX_METADATA_BYTES,
+    )
 
     # 4) Store on chain (with retry on failures)
     while True:
@@ -231,9 +256,11 @@ async def register(
         except Exception as e:
             logging.error("Failed to register on chain: %s", e)
             logging.info("Retrying in %d seconds...", retry_delay_secs)
-            time.sleep(retry_delay_secs)
+            # Do not block the event loop in async funcs
+            await asyncio.sleep(retry_delay_secs)
 
-def save(model:  BaseTemporalModel, model_dir: str):
+
+def save(model: BaseTemporalModel, model_dir: str):
     """Saves a model to the provided directory"""
     if not os.path.exists(model_dir):
         os.makedirs(model_dir, exist_ok=True)
@@ -270,7 +297,7 @@ async def get_repo(
 
 
 def load_local_model(
-    model_dir: str, competition_id: CompetitionId # Updated type hint to use CompetitionId directly
+    model_dir: str, competition_id: CompetitionId
 ) -> Union[BaseTemporalModel, "torch.nn.Module"]:
     """Loads a model from a directory."""
     model_constraints = MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
@@ -303,8 +330,8 @@ async def load_remote_model(
         uid (int): The UID of the Miner who's model should be downloaded.
         download_dir (str): The directory to download the model to.
         metagraph (Optional[bt.metagraph]): The metagraph of the subnet.
-        metadata_store (Optional[ModelMetadataStore]): The metadata store. If None, defaults to reading from the
-        remote_model_store (Optional[RemoteModelStore]): The remote model store. If None, defaults to reading from HuggingFace
+        metadata_store (Optional[ModelMetadataStore]): Where to read model metadata (default: chain).
+        remote_model_store (Optional[RemoteModelStore]): The remote model store (default: HuggingFace).
     """
 
     if metagraph is None:
@@ -324,13 +351,12 @@ async def load_remote_model(
         raise ValueError(f"No model metadata found for miner {uid}")
 
     model_constraints = MODEL_CONSTRAINTS_BY_COMPETITION_ID.get(
-        model_metadata.id.competition_id, None # Changed from _competition_id to competition_id
+        model_metadata.id.competition_id, None
     )
-
     if not model_constraints:
         raise ValueError("Invalid competition_id")
 
-    logging.info(f"Fetched model metadata: {model_metadata}")
+    logging.info("Fetched model metadata: %s", model_metadata)
     model: Model = await remote_model_store.download_model(
         model_metadata.id, download_dir, model_constraints
     )
