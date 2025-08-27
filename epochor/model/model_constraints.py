@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from temporal.models.builder import build_time_series_transformer as model_cls
 from temporal.configs.transformer_model_config import TransformerTimeSeriesConfig as config_cls
 from temporal.models.base_model import  BaseTemporalModel as model_type
+from typing import Any, Sequence
 
 from competitions import CompetitionId # Updated import to be from competitions package directly
 from enum import IntEnum # Keep IntEnum for other enums if they are still local
