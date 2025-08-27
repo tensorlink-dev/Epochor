@@ -110,6 +110,3 @@ class EvalResult:
 
     # The score of the winning model when this model was evaluated.
     winning_model_score: float
-
-
-

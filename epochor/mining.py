@@ -25,7 +25,7 @@ import bittensor as bt
 import huggingface_hub
 import torch
 
-from competitions import CompetitionId # Updated import
+from competitions.competitions import CompetitionId # Updated import
 from epochor.model.model_constraints import Competition, MODEL_CONSTRAINTS_BY_COMPETITION_ID
 from epochor.utils import logging
 import constants
@@ -187,7 +187,7 @@ async def register(
         namespace=namespace,
         name=name,
         commit=commit_hash,
-        competition_id=competition_id,
+        competition_id=competition_id.value,
     )
 
     # 2) Pull down that exact tree and compute secure_hash
