@@ -37,7 +37,7 @@ class NormalizationId(IntEnum):
     NONE = 0
 
 
-@dataclasses.dataclass
+@dataclass
 class EvalTask:
     """Represents a task to evaluate a model on.
 
