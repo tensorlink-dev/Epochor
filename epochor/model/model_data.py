@@ -1,5 +1,6 @@
 # add this import near the top with the others
 import hashlib
+import dataclasses
 
 @dataclasses.dataclass(frozen=True)
 class ModelId:
