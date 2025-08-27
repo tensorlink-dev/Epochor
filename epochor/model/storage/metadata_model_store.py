@@ -1,13 +1,12 @@
 # Refactored ChainModelMetadataStore for Epochor
 
-import os
-import asyncio
 from typing import Optional
-
-import bittensor as bt
+import asyncio
 import logging
 
-from epochor.model.model_data import ModelId, ModelMetadata, MAX_METADATA_BYTES  # ← add MAX_METADATA_BYTES
+import bittensor as bt
+
+from epochor.model.model_data import ModelId, ModelMetadata, MAX_METADATA_BYTES
 from epochor.model.base_metadata_model_store import ModelMetadataStore
 from epochor.utils.misc import run_in_thread  # helper to offload sync calls
 
@@ -31,8 +30,8 @@ class ChainModelMetadataStore(ModelMetadataStore):
         self,
         hotkey: str,
         model_id: ModelId,
-        wait_for_inclusion: bool = True,
-        wait_for_finalization: bool = True,
+        wait_for_inclusion: bool = True,   # kept for forward-compat; may be unused on older bt versions
+        wait_for_finalization: bool = True,  # kept for forward-compat; may be unused on older bt versions
         ttl: int = 60,
     ):
         """Commit compressed ModelId to chain for this miner hotkey."""
@@ -64,14 +63,14 @@ class ChainModelMetadataStore(ModelMetadataStore):
         except Exception:
             pass
 
-        # Thread off the blocking commit; honor wait flags
+        # Subtensor.commit signature (older versions):
+        #   commit(wallet, netuid, commitment)
+        # Use positional args to be compatible.
         def _commit():
             return self.subtensor.commit(
-                wallet=self.wallet,
-                netuid=self.subnet_uid,
-                commitment=data,
-                wait_for_inclusion=wait_for_inclusion,
-                wait_for_finalization=wait_for_finalization,
+                self.wallet,
+                self.subnet_uid,
+                data,
             )
 
         await run_in_thread(_commit, ttl=ttl)
@@ -107,3 +106,32 @@ class ChainModelMetadataStore(ModelMetadataStore):
             return None
 
         return ModelMetadata(id=model_id, block=meta["block"])
+
+
+# Optional helper to sanity-check a roundtrip.
+# Run manually if you want: `python -m epochor.model.storage.metadata_model_store`
+async def _test_roundtrip():
+    subtensor = bt.subtensor()
+    subnet_uid = int(os.getenv("EPOCHOR_SUBNET_UID", "0"))
+    uid = int(os.getenv("EPOCHOR_MODEL_UID", "0"))
+    wallet_name = os.getenv("EPOCHOR_WALLET", "")
+    hotkey_name = os.getenv("EPOCHOR_HOTKEY", "")
+
+    wallet = bt.wallet(name=wallet_name, hotkey=hotkey_name)
+    store = ChainModelMetadataStore(subtensor, subnet_uid, wallet)
+
+    model_id = ModelId(
+        namespace="user",
+        name="mymodel",
+        competition_id=1,
+        hash="abc",
+        commit="rev1"
+    )
+    await store.store_model_metadata(wallet.hotkey.ss58_address, model_id)
+    fetched = await store.retrieve_model_metadata(uid, wallet.hotkey.ss58_address)
+    print("Roundtrip OK:", bool(fetched and fetched.id.to_compressed_str() == model_id.to_compressed_str()))
+
+
+if __name__ == "__main__":
+    import os
+    asyncio.run(_test_roundtrip())
