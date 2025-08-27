@@ -172,6 +172,7 @@ def score_time_series_model(
                         inputs=batch["inputs_padded"].unsqueeze(-1),
                         prediction_length=forecast_len,
                         attention_mask=batch["attention_mask"],
+                        quantiles=eval_task.quantiles
                     )
                     logging.debug(f"DEBUG (batch {i}): preds shape: {preds.shape}")
 
