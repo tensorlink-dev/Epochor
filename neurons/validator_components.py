@@ -563,67 +563,152 @@ class ModelManager:
 
 
 class WeightSetter:
-    def __init__(self, subtensor: bt.subtensor, wallet: bt.wallet, netuid: int, metagraph: bt.metagraph, weights: torch.Tensor, metagraph_lock: threading.RLock):
+    """
+    Periodically sets weights on-chain in a background thread.
+
+    Usage:
+        ws = WeightSetter(subtensor, wallet, netuid, metagraph, weights, metagraph_lock)
+        ws.start()
+        ...
+        ws.stop()
+    """
+
+    def __init__(
+        self,
+        subtensor: "bt.subtensor",
+        wallet: "bt.wallet",
+        netuid: int,
+        metagraph: "bt.metagraph",
+        weights: torch.Tensor,
+        metagraph_lock: threading.RLock,
+        cadence: typing.Optional[typing.Union[float, int, timedelta]] = None,
+    ):
         self.subtensor = subtensor
         self.wallet = wallet
         self.netuid = netuid
         self.metagraph = metagraph
         self.weights = weights
-        self.stop_event = threading.Event()
-        self.weight_thread = threading.Thread(target=self.set_weights, daemon=True)
+
+        self.metagraph_lock = metagraph_lock
         self.weight_lock = threading.RLock()
 
-    def set_weights(self):
+        self.stop_event = threading.Event()
+        self._thread: typing.Optional[threading.Thread] = None
+
+        if cadence is None:
+            cadence = getattr(constants, "set_weights_cadence", 5400)  # default 1.5h
+        self.cadence_s = float(cadence.total_seconds() if isinstance(cadence, timedelta) else cadence)
+
+        # optional: cap cadence to a sane minimum
+        self.cadence_s = max(5.0, self.cadence_s)
+
+    # -------------------------
+    # public lifecycle
+    # -------------------------
+    def start(self) -> None:
+        """Start the background thread (no-op if already running)."""
+        if self._thread and self._thread.is_alive():
+            return
+        self.stop_event.clear()
+        self._thread = threading.Thread(target=self._thread_main, name="WeightSetter", daemon=True)
+        self._thread.start()
+        bt.logging.info(f"WeightSetter started; cadence={self.cadence_s:.1f}s")
+
+    def stop(self, join: bool = True, timeout: typing.Optional[float] = 5.0) -> None:
+        """Signal the loop to stop and (optionally) join the thread."""
+        self.stop_event.set()
+        if join and self._thread and self._thread.is_alive():
+            self._thread.join(timeout)
+            if self._thread.is_alive():
+                bt.logging.warning("WeightSetter thread did not stop within timeout.")
+
+    @property
+    def is_running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    async def trigger_once_now(self, ttl: int = 60) -> typing.Tuple[bool, str]:
+        """Convenience: set weights immediately from an async context."""
+        return await self._set_weights(ttl=ttl)
+
+    # -------------------------
+    # thread + asyncio loop
+    # -------------------------
+    def _thread_main(self) -> None:
+        try:
+            asyncio.run(self._async_loop())
+        except Exception as e:
+            bt.logging.error(f"WeightSetter loop crashed: {e}\n{traceback.format_exc()}")
+
+    async def _async_loop(self) -> None:
+        """
+        Single async loop that:
+          - sets weights
+          - sleeps for cadence
+          - repeats, until stop_event is set
+        """
+        backoff = 5.0  # seconds, exponential backoff on failures
         while not self.stop_event.is_set():
             try:
-                time.sleep(constants.set_weights_cadence)
-                asyncio.run(self._try_set_weights_loop())
+                ok, msg = await self._set_weights(ttl=120)
+                if ok:
+                    backoff = 5.0  # reset backoff on success
+                else:
+                    bt.logging.warning(f"set_weights returned status={ok}, msg={msg}")
+                    backoff = min(backoff * 2, 300.0)
             except Exception as e:
-                bt.logging.error(f"Error in weight setting loop: {e}")
+                bt.logging.error(f"Error during _set_weights: {e}\n{traceback.format_exc()}")
+                backoff = min(backoff * 2, 300.0)
 
-    async def _try_set_weights_loop(self):
-        """The main weight setting loop."""
-        while not self.stop_event.is_set():
+            # sleep in small chunks so we can notice stop_event quickly
+            delay = self.cadence_s if backoff <= 5.0 else backoff
+            slept = 0.0
+            step = 0.25
+            while slept < delay and not self.stop_event.is_set():
+                await asyncio.sleep(step)
+                slept += step
+
+    # -------------------------
+    # core weight setting
+    # -------------------------
+    async def _set_weights(self, ttl: int = 60) -> typing.Tuple[bool, str]:
+        """
+        Sets the weights on chain with a timeout.
+        Runs the blocking chain call in a threadpool so the event loop stays responsive.
+        Returns (ok: bool, msg: str).
+        """
+        loop = asyncio.get_running_loop()
+
+        def _blocking_call() -> typing.Tuple[bool, str]:
             try:
-                # Set weights every 1.5 hours.
-                await asyncio.sleep(constants.set_weights_cadence.total_seconds())
-                await self._set_weights()
-            except Exception as e:
-                bt.logging.error(
-                    f"Error in weight setting loop: {e}. {traceback.format_exc()}"
-                )
-
-    async def _set_weights(self, ttl: int = 60) -> None:
-        """Sets the weights on the chain."""
-
-        async def _try_set_weights() -> typing.Tuple[bool, str]:
-            try:
+                # snapshot uids under lock
                 with self.metagraph_lock:
                     uids = self.metagraph.uids
-                with self.weight_lock:
-                    self.weights.nan_to_num(0.0)
-                    weights_to_set = self.weights.numpy()
 
+                # snapshot weights under lock; make CPU numpy copy; sanitize NaNs/Infs
+                with self.weight_lock:
+                    w = self.weights.detach().to("cpu")
+                    w = torch.nan_to_num(w, nan=0.0, posinf=0.0, neginf=0.0)
+                    weights_to_set = w.numpy()
+
+                bt.logging.debug("Setting weights on-chain...")
                 return self.subtensor.set_weights(
                     netuid=self.netuid,
                     wallet=self.wallet,
                     uids=uids,
                     weights=weights_to_set,
                     wait_for_inclusion=True,
-                    version_key=constants.weights_version_key,
+                    version_key=getattr(constants, "weights_version_key", 0),
                     max_retries=1,
                 )
             except Exception as e:
-                bt.logging.warning(
-                    f"Failed to set weights due to {e}. Trying again later."
-                )
+                bt.logging.warning(f"Failed to set weights due to {e}.")
                 return (False, str(e))
 
         try:
-            bt.logging.debug(f"Setting weights.")
-            status = await asyncio.wait_for(_try_set_weights(), ttl)
-            bt.logging.debug(f"Finished setting weights with status: {status}.")
+            status = await asyncio.wait_for(loop.run_in_executor(None, _blocking_call), timeout=ttl)
+            bt.logging.debug(f"Finished setting weights with status: {status}")
             return status
         except asyncio.TimeoutError:
             bt.logging.error(f"Failed to set weights after {ttl} seconds")
             return (False, f"Timeout after {ttl} seconds")
+
