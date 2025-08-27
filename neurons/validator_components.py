@@ -19,6 +19,8 @@ import bittensor as bt
 import torch
 import numpy
 
+from datetime import timedelta
+
 import constants
 from epochor.utils import misc as utils
 from epochor.validation.ema_tracker import CompetitionEMATracker
