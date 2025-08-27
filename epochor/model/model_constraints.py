@@ -8,6 +8,7 @@ from temporal.models.base_model import  BaseTemporalModel as model_type
 from competitions import CompetitionId # Updated import to be from competitions package directly
 from enum import IntEnum # Keep IntEnum for other enums if they are still local
 from competitions.epsilon import EpsilonFunc, FixedEpsilon # Import EpsilonFunc and FixedEpsilon
+import dataclasses
 
 class ModelConstraints(BaseModel):
     """
@@ -37,7 +38,7 @@ class NormalizationId(IntEnum):
     NONE = 0
 
 
-@dataclass
+@dataclasses.dataclass
 class EvalTask:
     """Represents a task to evaluate a model on.
 
@@ -127,7 +128,7 @@ class EvalTask:
                 pass
 
 
-@dataclass
+@dataclasses.dataclass
 class Competition:
     """Defines a competition."""
 
