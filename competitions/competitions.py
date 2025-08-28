@@ -30,7 +30,7 @@ COMPETITION_SCHEDULE_BY_BLOCK: Dict[int, List[Competition]] = {
                     quantiles=[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9],
                     dataset_kwargs={
                         "batch_size": 32,
-                        "n_series": 1000,
+                        "n_series": 100, # 1000
                         "length" : 1024,
                     },
                     weight=1.00,
