@@ -147,7 +147,7 @@ def score_time_series_model(
     eval_tasks: List[Any],  # List of EvalTask objects
     device: str,
     task_or_seed: Any,
-) -> Tuple[float, Dict[str, "ScoreDetails"]]:  # Assuming ScoreDetails is defined elsewhere
+) -> Tuple[float, Dict[str, "ScoreDetails"]]:
     try:
         model.to(device)
         model.eval()
@@ -160,43 +160,52 @@ def score_time_series_model(
             EvaluatorClass = EVALUATION_BY_COMPETITION[eval_task.method_id.value]
             evaluator = EvaluatorClass()
 
-            for i, batch in enumerate(task_batches):  # Added enumerate
+            for i, batch in enumerate(task_batches):
                 inputs = batch["inputs_padded"].to(device)
                 targets = batch["targets_padded"].to(device)
-                forecast_len = batch['actual_target_lengths'][0]
-
-                logging.debug(f"DEBUG (batch {i}): inputs shape: {inputs.shape}, targets shape: {targets.shape}, forecast_len: {forecast_len}")
+                
+                # --- FIX 1: Use the padded target shape for prediction length ---
+                # This ensures the model's output tensor has a consistent shape.
+                forecast_len = targets.shape[1]
 
                 with torch.inference_mode():
                     preds = model.forecast(
-                        inputs=batch["inputs_padded"].unsqueeze(-1),
+                        inputs=inputs.unsqueeze(-1),
                         prediction_length=forecast_len,
-                        attention_mask=batch["attention_mask"],
+                        attention_mask=batch["attention_mask"].to(device),
                         quantiles=eval_task.quantiles
                     )
-                    logging.debug(f"DEBUG (batch {i}): preds shape: {preds.shape}")
+                
+                # --- FIX 2: Calculate loss for each item in the batch on its actual length ---
+                # This prevents scoring on padded values.
+                batch_losses = []
+                for j in range(preds.shape[0]):  # Iterate through each sample in the batch
+                    actual_len = batch["actual_target_lengths"][j]
+                    
+                    # Slice the target and prediction to their true length
+                    target_j = targets[j, :actual_len].cpu().numpy()
+                    pred_j = preds[j, :actual_len].cpu().numpy()
 
-                    # Pass targets and predictions with their batch and time dimensions intact
-                    # Assuming targets has shape (B, T_padded) and preds has shape (B, T_forecast, F, N_ensemble)
-                    targets_sliced = targets[:, :forecast_len].cpu().numpy()
-                    preds_sliced = preds[:, :forecast_len].cpu().numpy()
-                    logging.debug(f"DEBUG (batch {i}): targets_sliced shape: {targets_sliced.shape}, preds_sliced shape: {preds_sliced.shape}")
+                    # Ensure target and pred are not empty before evaluation
+                    if target_j.shape[0] > 0 and pred_j.shape[0] > 0:
+                        loss_j = evaluator.evaluate(target_j, pred_j)
+                        if np.isfinite(loss_j):
+                            batch_losses.append(loss_j)
 
-                    losses = evaluator.evaluate(targets_sliced, preds_sliced)
-                    logging.debug(f"DEBUG (batch {i}): losses: {losses}")
-                    all_losses.append(losses)
+                if batch_losses:
+                    all_losses.extend(batch_losses)
 
         # Flatten and compute mean
-        all_losses_flat = (
-            np.concatenate(all_losses)
-            if all_losses and isinstance(all_losses[0], np.ndarray)
-            else np.array(all_losses)
-        )
-        mean_score = float(np.mean(all_losses_flat))
-        logging.debug(f"DEBUG: all_losses_flat shape: {all_losses_flat.shape}, mean_score: {mean_score}")
+        if not all_losses:
+            # Handle case where no valid losses were computed
+            mean_score = math.inf
+            all_losses_flat = np.array([math.inf])
+        else:
+            all_losses_flat = np.array(all_losses)
+            mean_score = float(np.mean(all_losses_flat))
 
         score_details["flat_evaluation"] = ScoreDetails(
-            raw_score=all_losses_flat, # This is now correctly typed as np.ndarray
+            raw_score=all_losses_flat,
             norm_score=None,
             weighted_norm_score=None,
             num_samples=len(all_losses_flat),
@@ -205,9 +214,7 @@ def score_time_series_model(
         return mean_score, score_details
     except Exception as e:
         logging.error(f"Error in score_time_series_model: {e}{traceback.format_exc()}")
-        # Return a default error score and empty details to prevent unpack error
-        return math.inf, {"error": ScoreDetails(raw_score=np.array([math.inf]), num_samples=0)} # Return np.array for raw_score even on error
-
+        return math.inf, {"error": ScoreDetails(raw_score=np.array([math.inf]), num_samples=0)}
 
 def compute_competitive_uids(
     uid_to_score: typing.Dict[int, float],
