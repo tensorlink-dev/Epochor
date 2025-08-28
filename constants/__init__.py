@@ -77,7 +77,7 @@ WEIGHT_SYNC_MINER_MIN_PERCENT: float = 0.01
 
 # ─── On-chain versioning ────────────────────────────────────────────────────────
 # Version key passed when setting weights
-weights_version_key: str = "v1"
+weights_version_key: int =1 
 
 __validator_version__ = "0.0.1"
 version_split = __validator_version__.split(".")
