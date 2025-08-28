@@ -17,7 +17,7 @@ MIN_SYNC_STAKE = 10_000
 MAX_MODELS_TO_CACHE = 10
 
 # URL of the weights repo.
-WEIGHTS_REPO_URL = "https://huggingface.co/makemoret/model_weights"
+WEIGHTS_REPO_URL = "https://huggingface.co/tensor-link/model_weights"
 
 # Filename for the weights.
 WEIGHTS_FILENAME = "distilbert-base-uncased.pt"
