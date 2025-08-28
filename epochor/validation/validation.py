@@ -163,26 +163,27 @@ def score_time_series_model(
                 inputs = batch["inputs_padded"].to(device)
                 targets = batch["targets_padded"].to(device)
                 
-                # Use the padded target shape for prediction length.
                 forecast_len = targets.shape[1]
 
                 with torch.inference_mode():
                     preds = model.forecast(
                         inputs=inputs.unsqueeze(-1),
                         prediction_length=forecast_len,
-                        # --- THE FIX: REMOVE the attention_mask argument ---
-                        # The model will generate its own correct mask internally.
-                        # attention_mask=batch["attention_mask"].to(device), # This line is now removed.
                         quantiles=eval_task.quantiles
                     )
                 
-                # Calculate loss for each item in the batch on its actual length.
                 batch_losses = []
-                for j in range(preds.shape[0]):  # Iterate through each sample in the batch
+                for j in range(preds.shape[0]):
                     actual_len = batch["actual_target_lengths"][j]
                     
                     target_j = targets[j, :actual_len].cpu().numpy()
                     pred_j = preds[j, :actual_len].cpu().numpy()
+
+                    # The model outputs (Time, Features, Quantiles), e.g., (341, 1, 9).
+                    # The evaluator expects (Time, Ensemble), e.g., (341, 9).
+                    # np.squeeze() will remove the middle dimension of feature (need to change for multivariate down the line)
+                    if pred_j.ndim == 3 and pred_j.shape[1] == 1:
+                        pred_j = np.squeeze(pred_j, axis=1)
 
                     if target_j.shape[0] > 0 and pred_j.shape[0] > 0:
                         loss_j = evaluator.evaluate(target_j, pred_j)
@@ -192,7 +193,6 @@ def score_time_series_model(
                 if batch_losses:
                     all_losses.extend(batch_losses)
 
-        # Flatten and compute mean
         if not all_losses:
             mean_score = math.inf
             all_losses_flat = np.array([math.inf])
