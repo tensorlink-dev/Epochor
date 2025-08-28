@@ -32,7 +32,7 @@ from epochor.utils import metagraph_utils, logging as epo_logging
 from epochor.model.storage.metadata_model_store import ChainModelMetadataStore
 import epochor.mining as mining
 import constants
-from competitions.competitions import CompetitionId # Updated import
+from competitions.competitions import CompetitionId
 
 # Load .env and silence tokenizer warnings
 load_dotenv()
@@ -81,7 +81,7 @@ def get_config() -> bt.config:
 
 
 async def main(config: bt.config):
-    # — initialize logging & objects
+    # — Initialize logging & objects —
     bt.logging(config=config)
     epo_logging.reinitialize_logging()
     epo_logging.configure_logging(config)
@@ -92,53 +92,55 @@ async def main(config: bt.config):
 
     metagraph_utils.assert_registered(wallet, metagraph)
 
-    # — resolve commit SHA on HF —
+    # — Resolve full commit SHA on Hugging Face —
     hf_api = HfApi(token=os.environ.get("HF_ACCESS_TOKEN"))
     repo_info = hf_api.repo_info(
         repo_id=config.hf_repo_id,
         token=os.environ.get("HF_ACCESS_TOKEN"),
         revision=config.revision,
     )
-    commit_hash = repo_info.sha
-    logging.info(f"Using commit {commit_hash} on {config.hf_repo_id}")
+    
+    # --- THE FIX: Use a shortened commit hash for on-chain metadata ---
+    full_commit_hash = repo_info.sha
+    short_commit_hash = full_commit_hash[:12] # Use the first 12 characters for the chain
 
-    # — compute secure hash exactly as upload_model would —
+    logging.info(f"Using full commit '{full_commit_hash}' for download.")
+    logging.info(f"Using shortened commit '{short_commit_hash}' for on-chain registration.")
+
+    # — Compute secure hash using the full commit hash for download —
     with tempfile.TemporaryDirectory() as tmpdir:
         local_tree = snapshot_download(
             repo_id=config.hf_repo_id,
-            revision=commit_hash,
+            revision=full_commit_hash, # Always download the exact full commit
             cache_dir=tmpdir,
             token=os.environ.get("HF_ACCESS_TOKEN"),
         )
         secure_hash = hash_directory(local_tree)
     logging.info(f"Computed secure hash: {secure_hash}")
 
-    # — prepare on-chain metadata store & register —
+    # — Prepare on-chain metadata store & register —
     chain_store = ChainModelMetadataStore(
         subtensor=subtensor,
         subnet_uid=config.netuid,
         wallet=wallet,
     )
 
+    # Use the shortened commit hash for registration to save space
     await mining.register(
         wallet=wallet,
         repo_id=config.hf_repo_id,
-        commit_hash=commit_hash,
-        # pass the secure hash into the metadata layer:
+        commit_hash=short_commit_hash, # Pass the shortened hash here
         metadata_store=chain_store,
         competition_id=CompetitionId(config.competition_id),
         netuid=config.netuid,
         subtensor=subtensor,
-        secure_hash=secure_hash,       # ← ensure your register fn accepts this!
+        secure_hash=secure_hash,
     )
 
 
 if __name__ == "__main__":
     cfg = get_config()
     if cfg.list_competitions:
-        # No longer using constants.COMPETITION_SCHEDULE_BY_BLOCK here directly
-        # Instead, you might want to fetch it from competitions.competitions if needed
-        print("List of competitions is not directly available via constants.COMPETITION_SCHEDULE_BY_BLOCK anymore.")
         print("Please refer to competitions/competitions.py for competition definitions.")
     else:
         print(cfg)
