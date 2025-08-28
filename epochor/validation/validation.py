@@ -155,7 +155,6 @@ def score_time_series_model(
         all_losses = []
         score_details = {}
 
-        # Correctly unpack both eval_task and corresponding task_batches
         for eval_task, task_batches in zip(eval_tasks, samples):
             EvaluatorClass = EVALUATION_BY_COMPETITION[eval_task.method_id.value]
             evaluator = EvaluatorClass()
@@ -164,29 +163,27 @@ def score_time_series_model(
                 inputs = batch["inputs_padded"].to(device)
                 targets = batch["targets_padded"].to(device)
                 
-                # --- FIX 1: Use the padded target shape for prediction length ---
-                # This ensures the model's output tensor has a consistent shape.
+                # Use the padded target shape for prediction length.
                 forecast_len = targets.shape[1]
 
                 with torch.inference_mode():
                     preds = model.forecast(
                         inputs=inputs.unsqueeze(-1),
                         prediction_length=forecast_len,
-                        attention_mask=batch["attention_mask"].to(device),
+                        # --- THE FIX: REMOVE the attention_mask argument ---
+                        # The model will generate its own correct mask internally.
+                        # attention_mask=batch["attention_mask"].to(device), # This line is now removed.
                         quantiles=eval_task.quantiles
                     )
                 
-                # --- FIX 2: Calculate loss for each item in the batch on its actual length ---
-                # This prevents scoring on padded values.
+                # Calculate loss for each item in the batch on its actual length.
                 batch_losses = []
                 for j in range(preds.shape[0]):  # Iterate through each sample in the batch
                     actual_len = batch["actual_target_lengths"][j]
                     
-                    # Slice the target and prediction to their true length
                     target_j = targets[j, :actual_len].cpu().numpy()
                     pred_j = preds[j, :actual_len].cpu().numpy()
 
-                    # Ensure target and pred are not empty before evaluation
                     if target_j.shape[0] > 0 and pred_j.shape[0] > 0:
                         loss_j = evaluator.evaluate(target_j, pred_j)
                         if np.isfinite(loss_j):
@@ -197,7 +194,6 @@ def score_time_series_model(
 
         # Flatten and compute mean
         if not all_losses:
-            # Handle case where no valid losses were computed
             mean_score = math.inf
             all_losses_flat = np.array([math.inf])
         else:
