@@ -22,7 +22,7 @@ WEIGHTS_REPO_URL = "https://huggingface.co/tensor-link/model_weights"
 # Filename for the weights.
 WEIGHTS_FILENAME = "distilbert-base-uncased.pt"
 
-temperature = 0.5
+temperature = 0.1
 # The number of neurons in the subnet.
 SUBNET_NEURONS = 256
 
