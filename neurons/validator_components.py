@@ -29,12 +29,13 @@ from epochor.model.model_updater import MinerMisconfiguredError
 from epochor.model.model_data import EvalResult
 from competitions.epsilon import EpsilonFunc
 from epochor.utils import metagraph_utils
-from competitions import CompetitionId # Updated import
+from competitions import CompetitionId  # Updated import
 from epochor.utils import competition_utils
-from epochor.model.storage.disk_model_store import DiskModelStore # Import DiskModelStore
-from competitions import competitions 
+from epochor.model.storage.disk_model_store import DiskModelStore  # Import DiskModelStore
+from competitions import competitions
 
 from taoverse.utilities.perf_monitor import PerfMonitor
+
 
 def should_retry_model(
     epsilon_func: EpsilonFunc,
@@ -75,11 +76,11 @@ def should_retry_model(
 
 class ValidatorState:
     MODEL_TRACKER_FILENAME = "model_tracker.pickle"
-    COMPETITION_TRACKER_FILENAME = "competition_tracker.pickle"
+    COMPETITION_TRACKER_FILENAME = "competition_tracker.json"
     UIDS_FILENAME = "uids.pickle"
     VERSION_FILENAME = "version.txt"
 
-    def __init__(self,metagraph :  bt.metagraph, base_dir: str, metagraph_lock: threading.RLock):
+    def __init__(self, metagraph: bt.metagraph, base_dir: str, metagraph_lock: threading.RLock):
         self.base_dir = base_dir
         self.uids_filepath = os.path.join(base_dir, ValidatorState.UIDS_FILENAME)
         self.model_tracker_filepath = os.path.join(
@@ -97,7 +98,6 @@ class ValidatorState:
         self.pending_uids_to_eval: typing.Dict[int, typing.Set] = defaultdict(set)
         self.pending_uids_to_eval_lock = threading.RLock()
         self.metagraph_lock = metagraph_lock
-
 
     def load(self):
         # Check if the version has changed since we last restarted.
@@ -191,10 +191,12 @@ class ValidatorState:
             return copy.deepcopy(self.pending_uids_to_eval.get(competition_id, set()))
 
     def add_pending_uid_to_eval(self, competition_id: int, uid: int):
-         with self.pending_uids_to_eval_lock:
+        with self.pending_uids_to_eval_lock:
             self.pending_uids_to_eval[competition_id].add(uid)
 
-    def update_uids_to_eval(self, competition_id: int, uids_to_keep: typing.Set[int], active_competitions: typing.Set[int]):
+    def update_uids_to_eval(
+        self, competition_id: int, uids_to_keep: typing.Set[int], active_competitions: typing.Set[int]
+    ):
         with self.pending_uids_to_eval_lock:
             self.uids_to_eval[competition_id] = uids_to_keep
 
@@ -233,12 +235,14 @@ class ValidatorState:
     def get_ema_scores(self, competition_id: int):
         return self.ema_tracker.get(competition_id)
 
-    def update_ema_scores(self, scores_for_ema: typing.Dict[int, float], competition_id: int, block: int, uid_to_hotkey: typing.Dict[int, str]):
+    def update_ema_scores(
+        self, scores_for_ema: typing.Dict[int, float], competition_id: int, block: int, uid_to_hotkey: typing.Dict[int, str]
+    ):
         for uid, score in scores_for_ema.items():
             self.ema_tracker.update(competition_id, uid, score, block, uid_to_hotkey[uid])
 
-    def reset_ema_uid(self,uid: int):
-        self.ema_tracker.reset_uid( uid=uid)
+    def reset_ema_uid(self, uid: int):
+        self.ema_tracker.reset_uid(uid=uid)
 
     def reset_ema_hotkey_score(self, hotkey: str):
         self.ema_tracker.reset_score_for_hotkey(hotkey=hotkey)
@@ -247,9 +251,18 @@ class ValidatorState:
         self.ema_tracker.reset_competitions(active_competition_ids)
 
 
-
 class ModelManager:
-    def __init__(self, model_updater, model_tracker, miner_iterator, metagraph, state: ValidatorState, metagraph_lock: threading.RLock, local_store: DiskModelStore, get_current_block_fn: typing.Callable[[], int]):
+    def __init__(
+        self,
+        model_updater,
+        model_tracker,
+        miner_iterator,
+        metagraph,
+        state: ValidatorState,
+        metagraph_lock: threading.RLock,
+        local_store: DiskModelStore,
+        get_current_block_fn: typing.Callable[[], int],
+    ):
         self.model_updater = model_updater
         self.model_tracker = model_tracker
         self.miner_iterator = miner_iterator
@@ -261,6 +274,23 @@ class ModelManager:
         self.metagraph_lock = metagraph_lock
         self.local_store = local_store
         self.get_current_block = get_current_block_fn
+
+    # -------- UID / metagraph helpers --------
+    def _metagraph_size(self) -> int:
+        """Return current metagraph size under lock (fallbacks to hotkeys length)."""
+        with self.metagraph_lock:
+            try:
+                return int(getattr(self.metagraph, "n", len(self.metagraph.hotkeys)))
+            except Exception:
+                return len(getattr(self.metagraph, "hotkeys", []))
+
+    def _is_valid_uid(self, uid: int) -> bool:
+        """True iff uid is int in [0, metagraph_size)."""
+        if not isinstance(uid, int):
+            return False
+        n = self._metagraph_size()
+        return 0 <= uid < n
+    # -----------------------------------------
 
     def start(self):
         self.update_thread.start()
@@ -304,6 +334,15 @@ class ModelManager:
                 # We have space to add more models for eval. Process the next UID.
                 next_uid = next(self.miner_iterator)
 
+                # Guard: drop/skip any invalid UID before indexing hotkeys
+                if not self._is_valid_uid(next_uid):
+                    n = self._metagraph_size()
+                    bt.logging.warning(
+                        f"[update_models] Skipping invalid UID {next_uid}; metagraph size={n}. "
+                        f"This can happen on topology changes; will try next UID."
+                    )
+                    continue
+
                 # Confirm that we haven't already checked it within the chain update cadence.
                 time_diff = (
                     dt.datetime.now() - uid_last_checked_sequential.get(next_uid, dt.datetime.min)
@@ -323,6 +362,15 @@ class ModelManager:
 
                 # Get their hotkey from the metagraph.
                 with self.metagraph_lock:
+                    # Re-check inside the lock in case topology changed after earlier check
+                    n_locked = len(self.metagraph.hotkeys)
+                    if next_uid < 0 or next_uid >= n_locked:
+                        bt.logging.debug(
+                            f"[update_models] UID {next_uid} became invalid after lock acquire; "
+                            f"hotkeys now {n_locked}. Skipping."
+                        )
+                        # Skip this tick — loop continues cleanly
+                        continue
                     hotkey = self.metagraph.hotkeys[next_uid]
 
                 # Check if we should retry this model and force a sync if necessary.
@@ -333,8 +381,10 @@ class ModelManager:
 
                 if model_metadata:
                     # Check if the model is already queued for eval.
-                    is_queued_for_eval = next_uid in self.state.get_pending_uids_to_eval(model_metadata.id.competition_id) or \
-                                         next_uid in self.state.get_uids_to_eval(model_metadata.id.competition_id)
+                    is_queued_for_eval = (
+                        next_uid
+                        in self.state.get_pending_uids_to_eval(model_metadata.id.competition_id)
+                    ) or (next_uid in self.state.get_uids_to_eval(model_metadata.id.competition_id))
 
                     competition = competition_utils.get_competition_for_block(
                         model_metadata.id.competition_id,
@@ -342,10 +392,8 @@ class ModelManager:
                         competitions.COMPETITION_SCHEDULE_BY_BLOCK,
                     )
                     if competition is not None and not is_queued_for_eval:
-                        eval_history = (
-                            self.model_tracker.get_eval_results_for_miner_hotkey(
-                                hotkey, competition.id
-                            )
+                        eval_history = self.model_tracker.get_eval_results_for_miner_hotkey(
+                            hotkey, competition.id
                         )
                         force_sync = should_retry_model(
                             competition.constraints.epsilon_func,
@@ -384,9 +432,7 @@ class ModelManager:
                     updated = False
 
                 if updated:
-                    metadata = self.model_tracker.get_model_metadata_for_miner_hotkey(
-                        hotkey
-                    )
+                    metadata = self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
                     if metadata is not None:
                         self.state.add_pending_uid_to_eval(metadata.id.competition_id, next_uid)
                         bt.logging.debug(
@@ -435,9 +481,9 @@ class ModelManager:
         all_pending_uids_to_eval = set()
         # Loop through the uids across all competitions.
         with self.state.pending_uids_to_eval_lock:
-             for uids in self.state.uids_to_eval.values():
+            for uids in self.state.uids_to_eval.values():
                 all_uids_to_eval.update(uids)
-             for uids in self.state.pending_uids_to_eval.values():
+            for uids in self.state.pending_uids_to_eval.values():
                 all_pending_uids_to_eval.update(uids)
 
         # Reduce down to top models that are not in any competition yet.
@@ -445,6 +491,14 @@ class ModelManager:
 
         curr_block = self.get_current_block()
         for uid in uids_to_add:
+            # Guard: skip any UID that is no longer valid for this (copied) metagraph
+            if not isinstance(uid, int) or uid < 0 or uid >= len(metagraph.hotkeys):
+                bt.logging.debug(
+                    f"[queue_top_models] Skipping invalid UID {uid}; "
+                    f"copied metagraph size={len(metagraph.hotkeys)}."
+                )
+                continue
+
             # Check when we last evaluated this model.
             hotkey = metagraph.hotkeys[uid]
             last_eval_block = self.model_tracker.get_block_last_evaluated(hotkey) or 0
@@ -483,18 +537,20 @@ class ModelManager:
                     # Since this is a top model (as determined by other valis),
                     # we don't worry if self.pending_uids is already "full". At most
                     # there can be 10 * comps top models that we'd add here and that would be
-                    # a wildy exceptional case. It would require every vali to have a
+                    # a wildly exceptional case. It would require every vali to have a
                     # different top model.
                     # Validators should only have ~1 winner per competition and we only check bigger valis
                     # so there should not be many simultaneous top models not already being evaluated.
-                    top_model_metadata = (
-                        self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
+                    top_model_metadata = self.model_tracker.get_model_metadata_for_miner_hotkey(
+                        hotkey
                     )
                     if top_model_metadata is not None:
                         bt.logging.trace(
                             f"Shortcutting to top model or retrying evaluation for previously discarded top model with incentive for UID={uid}"
                         )
-                        self.state.add_pending_uid_to_eval(top_model_metadata.id.competition_id, uid)
+                        self.state.add_pending_uid_to_eval(
+                            top_model_metadata.id.competition_id, uid
+                        )
 
                     else:
                         bt.logging.warning(
@@ -539,8 +595,8 @@ class ModelManager:
                 hotkeys_to_keep = set()
                 with self.metagraph_lock:
                     for uid in uids_to_keep:
-                        if uid < len(self.metagraph.hotkeys):
-                             hotkeys_to_keep.add(self.metagraph.hotkeys[uid])
+                        if isinstance(uid, int) and 0 <= uid < len(self.metagraph.hotkeys):
+                            hotkeys_to_keep.add(self.metagraph.hotkeys[uid])
 
                 # Only keep those hotkeys.
                 evaluated_hotkeys_to_model_id = {
@@ -561,7 +617,6 @@ class ModelManager:
             time.sleep(dt.timedelta(minutes=5).total_seconds())
 
         bt.logging.info("Exiting clean models loop.")
-
 
 
 class WeightSetter:
@@ -599,7 +654,9 @@ class WeightSetter:
 
         if cadence is None:
             cadence = getattr(constants, "set_weights_cadence", 5400)  # default 1.5h
-        self.cadence_s = float(cadence.total_seconds() if isinstance(cadence, timedelta) else cadence)
+        self.cadence_s = float(
+            cadence.total_seconds() if isinstance(cadence, timedelta) else cadence
+        )
 
         # optional: cap cadence to a sane minimum
         self.cadence_s = max(5.0, self.cadence_s)
@@ -713,4 +770,3 @@ class WeightSetter:
         except asyncio.TimeoutError:
             bt.logging.error(f"Failed to set weights after {ttl} seconds")
             return (False, f"Timeout after {ttl} seconds")
-
