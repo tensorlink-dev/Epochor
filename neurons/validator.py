@@ -256,10 +256,12 @@ class Validator:
         table.add_column("Weight")
 
         final_scores = scoring_metrics.get("final_scores_dict", {})
+        ema_scores = self.state.ema_tracker.get(competition.id)  # {uid: ema_score}
         sub_comp_weights = self.state.ema_tracker.get_competition_weights(competition.id)
 
         for uid in uids:
             final_score = float(final_scores.get(uid, math.inf))
+            ema_val = float(ema_scores.get(uid, 0.0))
             weight_val = float(sub_comp_weights[uid].item()) if uid < len(sub_comp_weights) else 0.0
             table.add_row(
                 str(uid),
@@ -267,6 +269,7 @@ class Validator:
                 uid_to_state[uid].repo_name,
                 f"{uid_to_state[uid].score:.4f}" if math.isfinite(uid_to_state[uid].score) else "inf",
                 f"{final_score:.4f}" if math.isfinite(final_score) else "inf",
+                f"{ema_val:.4f}" if math.isfinite(ema_val) else "inf",
                 f"{weight_val:.4f}",
             )
         console.print(table)
