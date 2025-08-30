@@ -295,16 +295,16 @@ class ModelManager:
                     continue
 
                 # Throttle revisits of the same UID within chain_update_cadence.
+                now = dt.datetime.now()
                 last_seen = uid_last_checked_sequential.get(next_uid)
-                if last_seen and (dt.datetime.now() - last_seen) < chain_update_cadence:
-                    # Sleep only what remains from the cadence window.
-                    remaining = (chain_update_cadence - (dt.datetime.now() - last_seen)).total_seconds()
-                    if remaining > 0:
-                        bt.logging.trace(
-                            f"[update_models] UID {next_uid} seen recently; sleeping {remaining:.1f}s to respect cadence."
-                        )
-                        time.sleep(remaining)
-                uid_last_checked_sequential[next_uid] = dt.datetime.now()
+                if last_seen and (now - last_seen) < chain_update_cadence:
+                    # Too soon to re-check this UID — skip and move on to the next one.
+                    # (Optional tiny backoff to avoid busy spin if many are recent.)
+                    time.sleep(0.05)
+                    continue
+
+                # Only stamp when we actually proceed with this UID
+                uid_last_checked_sequential[next_uid] = now
 
                 curr_block = self.get_current_block()
 
