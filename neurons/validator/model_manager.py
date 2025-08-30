@@ -239,8 +239,8 @@ class ModelManager:
 
         top_miner_uids = metagraph_utils.get_top_miners(
             mg_copy,
-            min_validator_stake=constants.WEIGHT_SYNC_VALI_MIN_STAKE,
-            min_percent=constants.WEIGHT_SYNC_MINER_MIN_PERCENT,
+            constants.WEIGHT_SYNC_VALI_MIN_STAKE,
+            constants.WEIGHT_SYNC_MINER_MIN_PERCENT,
         )
 
         all_uids_to_eval = set()
