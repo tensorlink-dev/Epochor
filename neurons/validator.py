@@ -105,8 +105,14 @@ class Validator:
         model_updater = ModelUpdater(metadata_store, remote_store, self.local_store, self.state.model_tracker)
 
         self.model_manager = ModelManager(
-            model_updater, self.miner_iterator, self.metagraph, self.state,
-            self.metagraph_lock, self.local_store, self._get_current_block
+            model_updater=model_updater,
+            model_tracker=self.state.model_tracker,            # ← required in your signature
+            miner_iterator=self.miner_iterator,
+            metagraph=self.metagraph,
+            state=self.state,
+            metagraph_lock=self.metagraph_lock,
+            local_store=self.local_store,
+            get_current_block_fn=self._get_current_block,      # ← required too
         )
         self.weight_setter = WeightSetter(
             self.weights_subtensor, self.wallet, self.config.netuid, self.metagraph,
