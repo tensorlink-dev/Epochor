@@ -167,7 +167,7 @@ class ModelManager:
 
         except MinerMisconfiguredError as e:
             bt.logging.warning(f"Failed to sync UID {next_uid}: {e}")
-            self.model_tracker.on_model_evaluated(hotkey, 0, EvalResult(block=curr_block, score=math.inf))
+            self._record_failed_eval(hotkey, curr_block)
 
     def _wait_for_open_eval_slot(self):
         """Pauses the update thread if the evaluation queue is full."""
@@ -214,6 +214,21 @@ class ModelManager:
             time.sleep(dt.timedelta(minutes=5).total_seconds())
         bt.logging.info("Exiting clean models loop.")
 
+    def _record_failed_eval(self, hotkey: str, curr_block: int, comp_id: int = 0) -> None:
+        try:
+            self.model_tracker.on_model_evaluated(
+                hotkey,
+                comp_id,
+                EvalResult(
+                    block=curr_block,
+                    score=math.inf,
+                    winning_model_block=0,
+                    winning_model_score=0.0,
+                ),
+            )
+        except Exception as ex:
+            bt.logging.error(f"Failed to record failed-eval marker for hotkey {hotkey}: {ex}")
+
     # ---------------------------
     # Top-model shortcut
     # ---------------------------
@@ -254,10 +269,7 @@ class ModelManager:
                     ))
                 except MinerMisconfiguredError as e:
                     bt.logging.warning(f"Failed to sync top-model UID {uid}: {e}")
-                    self.model_tracker.on_model_evaluated(
-                        hotkey, 0, EvalResult(block=curr_block, score=math.inf,
-                                              winning_model_block=0, winning_model_score=0)
-                    )
+                    self._record_failed_eval(hotkey, curr_block)
                     updated = False
 
                 if not updated:
