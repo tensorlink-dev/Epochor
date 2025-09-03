@@ -112,7 +112,7 @@ neurons/validator/
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/badger-fi/epochor-subnet.git
+   git clone https://github.com/tensorlink-dev/epochor-subnet.git
    cd epochor-subnet
    ```
 
@@ -147,5 +147,3 @@ neurons/validator/
 - **Monitor Logs** – Track metrics in WandB and logs.  
 
 ---
-
-This README now reflects the actual validator/miner flow, the **winner-makes-most** reward design, and that while **CRPS is currently used**, the framework is flexible to future metrics.
