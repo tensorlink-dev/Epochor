@@ -14,7 +14,7 @@ Our mission is to incentivize and democratize temporal intelligence. We are buil
 
 ## 📜 Overview
 
-Epochor is a Bittensor subnet that **incentivizes the creation of foundational time-series models**. Miners train models and publish them to **Hugging Face Hub**, while validators fetch these models, evaluate them on **synthetic and real-world datasets**, and score them exclusively with **CRPS (Continuous Ranked Probability Score)**.  
+Epochor is a Bittensor subnet that **incentivizes the creation of foundational time-series models**. Miners train models and publish them to **Hugging Face Hub**, while validators fetch these models, evaluate them on **synthetic and real-world datasets**, and score them with competition-specific metrics (currently **CRPS**).  
 
 Competitions are rotated dynamically, and **the top-performing miner in each competition earns the largest share of rewards**, while other miners still receive proportionally smaller allocations. This **winner-makes-most** structure creates strong incentives for innovation while maintaining fairness across participants.
 
@@ -37,7 +37,7 @@ This codebase builds upon the work of the [Pretrain Subnet](https://github.com/o
  │ CompetitionManager → select dataset     │
  │ ModelManager → fetch model from HF      │
  │ EvaluationService → run forecasts       │
- │ ScoringService → compute CRPS           │
+ │ ScoringService → compute metric (CRPS)  │
  │ State/EMA → smooth scores               │
  │ WeightSetter → submit set_weights       │
  │ Clone Assessment → detect duplicates    │
@@ -57,13 +57,13 @@ This codebase builds upon the work of the [Pretrain Subnet](https://github.com/o
 Epochor's design incorporates several key features to ensure a fair, competitive, and exploitation-resistant environment.
 
 ### 🏆 Winner-Makes-Most Incentives
-Rewards are weighted so the **#1 ranked miner receives the majority of emissions** for each competition. Other miners receive smaller proportional shares based on CRPS. This ensures competitiveness while still rewarding participation.
+Rewards are weighted so the **#1 ranked miner receives the majority of emissions** for each competition. Other miners receive smaller proportional shares. This ensures competitiveness while still rewarding participation.
 
 ### 🛡️ Sybil Resistance
 The winner-makes-most mechanism makes Sybil attacks unprofitable. Running many mediocre nodes yields minimal returns — miners must focus resources into building genuinely competitive models.
 
 ### 💡 Innovation Over Imitation
-`assess_clones.py` enforces penalties on duplicate or plagiarized models. A challenger must demonstrate **clear CRPS improvement** to overtake the leader, forcing true innovation.
+`assess_clones.py` enforces penalties on duplicate or plagiarized models. A challenger must demonstrate **clear improvement in the scoring metric** to overtake the leader, forcing true innovation.
 
 ### 🧠 Zero-Shot Generalization
 Validators draw from a **broad and rotating set of datasets** (synthetic + real). Miners never know which competition comes next, ensuring that rewarded models are **generalist** rather than overfit.
@@ -73,13 +73,13 @@ All models must be implemented with **[Temporal](https://github.com/your-repo/te
 
 ---
 
-## ⚙️ Scoring Mechanism (Always CRPS)
+## ⚙️ Scoring Mechanism
 
-All evaluations use **CRPS** as the metric.  
+All competitions use a **consistent scoring pipeline**, with the **current primary metric being CRPS** (Continuous Ranked Probability Score). Future competitions may introduce additional or alternative metrics as needed.
 
 1. **Data Generation** – Fresh datasets (synthetic GP kernels, financial returns, etc.) are created or loaded each round.  
 2. **Forecasting** – Validators fetch miner models from Hugging Face and run them on unseen data.  
-3. **Evaluation** – Forecasts are scored using **CRPS** or **ensemble CRPS** (dropout resampling).  
+3. **Evaluation** – Forecasts are scored using **CRPS** (ensemble CRPS when probabilistic sampling is available).  
 4. **Smoothing** – Scores are tracked with an **Exponential Moving Average (EMA)** for stability.  
 5. **Clone Assessment** – Duplicate detection prevents trivial copies from gaming rewards.  
 6. **Reward Allocation** – The **winner receives the majority share**, others get smaller proportional weights.  
@@ -91,7 +91,7 @@ All evaluations use **CRPS** as the metric.
 ```
 epochor/
  ├─ datasets/       # dataset loaders & IDs
- ├─ evaluation/     # eval tasks, CRPS evaluation
+ ├─ evaluation/     # eval tasks, scoring methods
  ├─ generators/     # synthetic time-series kernels
  ├─ model/          # model stores, tracker, updater
  ├─ validation/     # EMA tracker, rewards, clone detection
@@ -100,7 +100,7 @@ neurons/validator/
  ├─ competition_manager.py  # schedules datasets
  ├─ evaluation_service.py   # runs model inference
  ├─ model_manager.py        # handles HF model pulls
- ├─ scoring_service.py      # CRPS scoring
+ ├─ scoring_service.py      # scoring logic (currently CRPS)
  ├─ state.py                # EMA + state tracking
  ├─ weight_setter.py        # submits weights
  └─ validator.py            # main validator loop
@@ -148,4 +148,4 @@ neurons/validator/
 
 ---
 
-This README now reflects the actual validator/miner flow, the CRPS-only scoring approach, and the **winner-makes-most** reward design.
+This README now reflects the actual validator/miner flow, the **winner-makes-most** reward design, and that while **CRPS is currently used**, the framework is flexible to future metrics.
