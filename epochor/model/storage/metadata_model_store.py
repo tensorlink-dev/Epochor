@@ -1,13 +1,12 @@
 # Refactored ChainModelMetadataStore for Epochor
 
-import os
-import asyncio
 from typing import Optional
-
-import bittensor as bt
+import asyncio
 import logging
 
-from epochor.model.data import ModelId, ModelMetadata
+import bittensor as bt
+
+from epochor.model.model_data import ModelId, ModelMetadata, MAX_METADATA_BYTES
 from epochor.model.base_metadata_model_store import ModelMetadataStore
 from epochor.utils.misc import run_in_thread  # helper to offload sync calls
 
@@ -31,8 +30,8 @@ class ChainModelMetadataStore(ModelMetadataStore):
         self,
         hotkey: str,
         model_id: ModelId,
-        wait_for_inclusion: bool = True,
-        wait_for_finalization: bool = True,
+        wait_for_inclusion: bool = True,   # kept for forward-compat; may be unused on older bt versions
+        wait_for_finalization: bool = True,  # kept for forward-compat; may be unused on older bt versions
         ttl: int = 60,
     ):
         """Commit compressed ModelId to chain for this miner hotkey."""
@@ -40,11 +39,41 @@ class ChainModelMetadataStore(ModelMetadataStore):
             raise ValueError("Wallet required to write metadata on-chain")
 
         data = model_id.to_compressed_str()
-        commit_fn = lambda: self.subtensor.commit(
-            self.wallet, self.subnet_uid, data
+        b = data.encode("utf-8")
+
+        # Hard guard: on-chain commitment must be <= MAX_METADATA_BYTES
+        if len(b) > MAX_METADATA_BYTES:
+            raise ValueError(
+                f"Compressed model_id is {len(b)}B > {MAX_METADATA_BYTES}B. "
+                "Check ModelId.to_compressed_str() trimming."
+            )
+
+        logger.info(
+            "Committing model_id (bytes=%d) for hotkey=%s",
+            len(b),
+            hotkey,
         )
-        # Offload blocking call with timeout
-        await run_in_thread(commit_fn, ttl=ttl)
+
+        # Optionally warn if the provided hotkey doesn't match the wallet hotkey
+        try:
+            if self.wallet and getattr(self.wallet, "hotkey", None):
+                w_hotkey = getattr(self.wallet.hotkey, "ss58_address", None)
+                if w_hotkey and w_hotkey != hotkey:
+                    logger.warning("Hotkey mismatch: arg=%s wallet=%s", hotkey, w_hotkey)
+        except Exception:
+            pass
+
+        # Subtensor.commit signature (older versions):
+        #   commit(wallet, netuid, commitment)
+        # Use positional args to be compatible.
+        def _commit():
+            return self.subtensor.commit(
+                self.wallet,
+                self.subnet_uid,
+                data,
+            )
+
+        await run_in_thread(_commit, ttl=ttl)
 
     async def retrieve_model_metadata(
         self,
@@ -66,34 +95,43 @@ class ChainModelMetadataStore(ModelMetadataStore):
             self.subnet_uid, uid
         )
         commit_str = await run_in_thread(get_commit_fn, ttl=ttl)
+        if not commit_str:
+            return None
 
         # 3) parse ModelId
         try:
             model_id = ModelId.from_compressed_str(commit_str)
         except Exception:
-            logger.debug(f"Failed to parse ModelId from chain for {hotkey}")
+            logger.debug("Failed to parse ModelId from chain for %s", hotkey)
             return None
 
         return ModelMetadata(id=model_id, block=meta["block"])
 
 
-# Helper tests (run as needed)
+# Optional helper to sanity-check a roundtrip.
+# Run manually if you want: `python -m epochor.model.storage.metadata_model_store`
 async def _test_roundtrip():
-    # Example usage with env-configured wallet and subtensor
     subtensor = bt.subtensor()
-    hotkey = os.getenv("EPOCHOR_HOTKEY")
-    wallet_name = os.getenv("EPOCHOR_WALLET")
-    coldkey = os.getenv("EPOCHOR_COLDKEY")
-    subnet_uid = int(os.getenv("EPOCHOR_SUBNET_UID"))
-    uid = int(os.getenv("EPOCHOR_MODEL_UID"))
+    subnet_uid = int(os.getenv("EPOCHOR_SUBNET_UID", "0"))
+    uid = int(os.getenv("EPOCHOR_MODEL_UID", "0"))
+    wallet_name = os.getenv("EPOCHOR_WALLET", "")
+    hotkey_name = os.getenv("EPOCHOR_HOTKEY", "")
 
-    wallet = bt.wallet(name=wallet_name, hotkey=hotkey)
+    wallet = bt.wallet(name=wallet_name, hotkey=hotkey_name)
     store = ChainModelMetadataStore(subtensor, subnet_uid, wallet)
 
-    model_id = ModelId(namespace="user", name="mymodel", competition_id=1, hash="abc", commit="rev1")
-    await store.store_model_metadata(hotkey, model_id)
-    fetched = await store.retrieve_model_metadata(uid, hotkey)
-    print("Roundtrip OK:", fetched and fetched.id == model_id)
+    model_id = ModelId(
+        namespace="user",
+        name="mymodel",
+        competition_id=1,
+        hash="abc",
+        commit="rev1"
+    )
+    await store.store_model_metadata(wallet.hotkey.ss58_address, model_id)
+    fetched = await store.retrieve_model_metadata(uid, wallet.hotkey.ss58_address)
+    print("Roundtrip OK:", bool(fetched and fetched.id.to_compressed_str() == model_id.to_compressed_str()))
+
 
 if __name__ == "__main__":
+    import os
     asyncio.run(_test_roundtrip())

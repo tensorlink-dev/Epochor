@@ -10,21 +10,20 @@ import bittensor as bt
 from huggingface_hub import HfApi, snapshot_download
 from huggingface_hub.utils import RepositoryNotFoundError
 
-from epochor.model.storage.remote_model_store import RemoteModelStore
-from epochor.model.data import Model, ModelId
-from epochor.model.competition.data import ModelConstraints
+from epochor.model.base_hf_model_store import RemoteModelStore
+from epochor.model.model_data import Model, ModelId
+from epochor.model.model_constraints import ModelConstraints
 from epochor.model.model_updater import MinerMisconfiguredError
 from temporal.utils.hf_accessors import save_hf, load_hf
 from epochor.utils.hashing import hash_directory
+from dotenv import load_dotenv
+load_dotenv()   # <-- populates os.environ from .env
 
 
 logger = logging.getLogger(__name__)
 
 
-class 
-
-
-HuggingFaceModelStore(RemoteModelStore):
+class HuggingFaceModelStore(RemoteModelStore):
     """Epochor’s HF‐Hub implementation for storing & retrieving TS models."""
 
     @classmethod
@@ -74,13 +73,16 @@ HuggingFaceModelStore(RemoteModelStore):
 
             # Now, upload the contents of the temporary directory to the Hub.
             try:
-                 api.create_repo(repo_id, private=True, exist_ok=True)
-                 commit_info = api.upload_folder(
-                     repo_id=repo_id,
-                     folder_path=tmpdir,
-                     commit_message=f"Epochor upload for {model.id.name}",
-                 )
-                 commit_hash = commit_info.oid
+                api.create_repo(repo_id, private=True, exist_ok=True)
+                commit_info = api.upload_folder(
+                    repo_id=repo_id,
+                    folder_path=tmpdir,
+                    commit_message=f"Epochor upload for {model.id.name}",
+                )
+                if not commit_info or not hasattr(commit_info, 'oid') or not commit_info.oid:
+                    raise IOError(f"Failed to get a valid commit hash from Hugging Face for repo {repo_id}")
+                
+                commit_hash = commit_info.oid
             except Exception as e:
                 raise IOError(f"Failed to upload model to Hugging Face: {e}") from e
 
@@ -91,6 +93,7 @@ HuggingFaceModelStore(RemoteModelStore):
             name=model.id.name,
             commit=commit_hash,
             hash=secure_hash,
+            competition_id=model.id.competition_id
         )
 
     async def download_model(
@@ -115,9 +118,9 @@ HuggingFaceModelStore(RemoteModelStore):
         Returns:
             Model: The downloaded and verified model, including the PyTorch model and its configuration.
         """
-        if not model_id.commit or not model_id.hash:
+        if not model_id.commit:
             raise MinerMisconfiguredError(
-                model_id.name, "Missing Hugging Face commit or hash in ModelId."
+                model_id.name, "Missing Hugging Face commit in ModelId."
             )
 
         repo_id = f"{model_id.namespace}/{model_id.name}"
@@ -164,12 +167,13 @@ HuggingFaceModelStore(RemoteModelStore):
                     message=f"Failed to download '{repo_id}' from Hugging Face: {e}",
                 ) from e
 
-            # 3. Verify the hash of the downloaded content.
-            computed_hash = hash_directory(download_path)
-            if computed_hash != model_id.hash:
-                raise ValueError(
-                    f"Hash mismatch for {repo_id}. Expected {model_id.hash}, but downloaded content has hash {computed_hash}."
-                )
+            # 3. Verify the hash of the downloaded content if a hash is provided.
+            if model_id.hash:
+                computed_hash = hash_directory(download_path)
+                if computed_hash != model_id.hash:
+                    raise ValueError(
+                        f"Hash mismatch for {repo_id}. Expected {model_id.hash}, but downloaded content has hash {computed_hash}."
+                    )
 
             # 4. If the hash is valid, load the model from the verified local path.
             try:

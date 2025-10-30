@@ -1,8 +1,8 @@
 import math
 from typing import List
 
-from taoverse.model.competition.data import EpsilonFunc
-from taoverse.model.data import EvalResult
+from epochor.model.model_constraints import EpsilonFunc
+from epochor.model.model_data import EvalResult
 
 
 def should_retry_model(

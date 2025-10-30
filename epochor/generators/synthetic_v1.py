@@ -5,15 +5,14 @@ from typing import Dict, Any, List
 import numpy as np
 import torch
 
-from .base import Benchmarker
+from epochor.generators.base import Benchmarker
 from epochor.generators.kernel_synth import KernelSynth
 
 
 class SyntheticBenchmarkerV1(Benchmarker):
     """
     Generates synthetic time series using KernelSynth, splits them into input/target pairs,
-    prepares padded batches suitable for transformer models, and scores predictions
-    using MSE.
+    prepares padded batches suitable for transformer models.
     """
 
     def __init__(self,

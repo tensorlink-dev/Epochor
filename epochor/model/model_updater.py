@@ -1,12 +1,12 @@
 # epochor/validator/model_updater.py
 
 import os
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import logging
-from epochor.model.competition import utils as competition_utils
-from epochor.model.competition.data import Competition, ModelConstraints
-from epochor.model.data import Model, ModelId, ModelMetadata
+from epochor.utils import competition_utils
+from epochor.model.model_constraints import Competition, ModelConstraints, MODEL_CONSTRAINTS_BY_COMPETITION_ID
+from epochor.model.model_data import Model, ModelId, ModelMetadata
 from epochor.model.model_tracker import ModelTracker
 from epochor.model.base_disk_model_store import LocalModelStore
 from epochor.model.base_hf_model_store import RemoteModelStore
@@ -46,13 +46,12 @@ class ModelUpdater:
             return False
 
         # 1) Parameter count
-        total_params = sum(p.numel() for p in model.pt_model.parameters())
-        if not (total_params <= constraints.max_params):
-            logging.debug(f"{model.id.name} parameter count {total_params} outside [{constraints.max_params}]")
+        total_params = sum(p.numel() for p in model.model.parameters())
+        if not (total_params <= constraints.max_model_parameters):
+            logging.debug(f"{model.id.name} parameter count {total_params} outside of [{constraints.max_model_parameters}]")
             return False
 
-        # 2) Allowed architectures
-        if type(model.model) not in constraints.model_cls:
+        if not isinstance(model.model,constraints.model_type):
             logging.debug(f"{type(model.model)} not in allowed model classes")
             return False
 
@@ -109,11 +108,11 @@ class ModelUpdater:
                 f"Competition {metadata.id.competition_id} not active at block {metadata.block if comp_at_upload is None else curr_block}"
             )
 
-        # 3) Respect evaluation delay
-        delay = comp_now.constraints.eval_block_delay
-        if curr_block - metadata.block < delay:
-            logging.info(f"{hotkey} waiting for eval delay ({delay} blocks)")
-            return False
+        # 3) Respect evaluation delay - not sure if I need this? QUERY
+        #delay = comp_now.constraints.eval_block_delay
+        #if curr_block - metadata.block < delay:
+        #    logging.info(f"{hotkey} waiting for eval delay ({delay} blocks)")
+        #    return False
 
         # 4) Skip if metadata unchanged and not forced
         tracked = self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
@@ -129,7 +128,8 @@ class ModelUpdater:
 
         # 6) Record in tracker (even if validation fails)
         self.model_tracker.on_model_updated(hotkey, metadata)
-
+        # fingerprint = get_arch_dict(model.model.config)
+        # self.model_tracker.hotkey_to_model_fingerprint(fingerprint)
         # 7) Optional hash check
         if metadata.id.hash:
             combined = get_hash_of_two_strings(metadata.id.hash, hotkey)

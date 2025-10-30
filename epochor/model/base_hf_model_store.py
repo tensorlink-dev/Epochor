@@ -1,7 +1,7 @@
 import abc
 
-from epochor.model.competition.data import ModelConstraints
-from epochor.model.data import Model, ModelId
+from epochor.model.model_constraints import ModelConstraints
+from epochor.model.model_data import Model, ModelId
 
 
 class RemoteModelStore(abc.ABC):

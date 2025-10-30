@@ -8,7 +8,7 @@ members defined in the registry, ensuring type-safe coupling.
 """
 
 import numpy as np
-from .registry import (
+from epochor.generators.registry import (
     BlendedGeneratorName,
     StatisticalGeneratorName,
     ChaoticGeneratorName,

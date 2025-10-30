@@ -20,14 +20,13 @@ import asyncio
 from typing import Optional
 
 import bittensor as bt
-from taoverse.model.storage.chain.chain_model_metadata_store import (
+from epochor.model.storage.metadata_model_store import (
     ChainModelMetadataStore,
 )
-from taoverse.model.storage.model_metadata_store import ModelMetadataStore
+from epochor.model.base_metadata_model_store import ModelMetadataStore
 
 import constants
-from competitions.data import CompetitionId
-
+from competitions.competitions import CompetitionId # Updated import
 
 def best_uid(
     competition_id: CompetitionId,

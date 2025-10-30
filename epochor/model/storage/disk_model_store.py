@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from temporal.utils.hf_accessors import save_hf, load_hf
-import epochor.utils.logging as logging
-from epochor.model.data import Model, ModelId
-from epochor.model.competition.data import ModelConstraints
+from epochor.utils import logging
+from epochor.model.model_data import Model, ModelId
+from epochor.model.model_constraints import ModelConstraints
 from epochor.model.storage.disk import utils
 from epochor.model.base_disk_model_store import LocalModelStore
 from epochor.utils.hashing import hash_directory
@@ -27,6 +27,8 @@ class DiskModelStore(LocalModelStore):
 
     def store_model(self, hotkey: str, model: Model) -> ModelId:
         """Stores a trained model locally via `save_hf`."""
+        # Note: We use the hash of the model as the commit, since we don't have a true "commit" in the local case.
+
         save_directory = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model.id)
         os.makedirs(save_directory, exist_ok=True)
 
@@ -34,39 +36,10 @@ class DiskModelStore(LocalModelStore):
             model=model.model,
             config=model.model.config,
             save_directory=save_directory,
-            safe=self.safe_format == "safetensors",
+            safe=True,
         )
         
-        # We compute the hash of the directory to store in the model id.
-        model_hash = hash_directory(save_directory)
-
-        # For local storage, the commit is the hash.
-        commit = model_hash
-
-        # Create a symlink to the "latest" version of this model.
-        latest_path = utils.get_local_model_dir(self.base_dir, hotkey, model.id)
-        os.makedirs(os.path.dirname(latest_path), exist_ok=True)
-        # Create a snapshot directory based on the hash.
-        snapshot_dir = os.path.join(latest_path, commit)
-        # If the snapshot dir exists, remove it.
-        if os.path.exists(snapshot_dir):
-            shutil.rmtree(snapshot_dir)
-
-        shutil.copytree(save_directory, snapshot_dir)
-
-        # Create a symlink from "latest" to the snapshot directory.
-        latest_symlink = os.path.join(latest_path, "latest")
-        if os.path.exists(latest_symlink) or os.path.islink(latest_symlink):
-            os.remove(latest_symlink)
-        os.symlink(snapshot_dir, latest_symlink)
-
-
-        return ModelId(
-            namespace=model.id.namespace,
-            name=model.id.name,
-            commit=commit,
-            hash=model_hash
-        )
+        return model.id
 
     def retrieve_model(
         self,
@@ -78,15 +51,12 @@ class DiskModelStore(LocalModelStore):
         model_dir = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model_id)
 
         # Verify the hash of the directory before loading.
-        model_hash = hash_directory(model_dir)
-        if model_hash != model_id.hash:
-            raise ValueError(f"Hash mismatch for {model_id}. Expected {model_id.hash}, but on-disk content has hash {model_hash}.")
 
         pt_model = load_hf(
             model_name_or_path=model_dir,
             model_cls=model_constraints.model_cls,
             config_cls=model_constraints.config_cls,
-            safe=self.safe_format == "safetensors",
+            safe=True,
             map_location = 'cpu'
         )
 

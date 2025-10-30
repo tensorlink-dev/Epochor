@@ -3,7 +3,7 @@
 # Copyright © 2023 const
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
-# documentation files (the “Software”), to deal in the Software without restriction, including without limitation
+# documentation files (S_tensor“Software”), to deal in the Software without restriction, including without limitation
 # the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
 # and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -17,25 +17,28 @@
 # DEALINGS IN THE SOFTWARE.
 
 # Tools for performing validation over models.
+from typing import Any, Dict, List, Tuple
 
 import dataclasses
 import math
 import typing
 import numpy as np
+import traceback # Import traceback
 
-import epochor.utils.logging as logging
+from epochor.utils import logging
 import torch
-from epochor.competition.epsilon import EpsilonFunc
-from epochor.model.data import Model
+from competitions.epsilon import EpsilonFunc
+from epochor.model.model_data import Model
 from epochor.evaluation.eval_task import EvalTask
 from epochor.config import EPOCHOR_CONFIG
-from epochor.evaluation.evaluation import CRPSEvaluator
+from epochor.evaluation.evaluation import BaseEvaluator
 from epochor.validation.statistics import (
     compute_overall_win_rate,
     compute_ci_bounds,
     compute_aggregate_gap,
     normalize_gap_scores,
 )
+from epochor.evaluation.evaluation import EVALUATION_BY_COMPETITION 
 
 
 
@@ -43,29 +46,61 @@ from epochor.validation.statistics import (
 class ScoreDetails:
     """Details of the score for a model."""
 
-    raw_score: typing.Optional[float] = None
+    raw_score: typing.Optional[np.ndarray] = None # Changed from float to np.ndarray
     norm_score: typing.Optional[float] = None
     weighted_norm_score: typing.Optional[float] = None
     num_samples: int = 0
 
 
-
 def compute_scores(
     uids: typing.List[int],
-    uid_to_score: typing.Dict[int, float],
-) -> typing.Tuple[typing.Dict[int, int], typing.Dict[int, float]]:
+    # Changed uid_to_score to uid_to_raw_losses, accepting Dict[int, np.ndarray]
+    uid_to_raw_losses: typing.Dict[int, np.ndarray],
+) -> typing.Dict[str, typing.Dict[int, float]]:  # Changed return type hint
     """
     Computes the wins and win rate for each model based on loss comparison.
 
     Parameters:
         uids (list): A list of uids to compare.
-        uid_to_score (dict): A dictionary of scores for each uid.
+        uid_to_raw_losses (dict): A dictionary mapping uids to an np.ndarray of raw losses.
 
     Returns:
         tuple: A tuple containing two dictionaries, one for wins and one for win rates.
     """
 
-    mat = np.stack(list(uid_to_score.values()), axis=0)
+    # Initialize mat with NaNs
+    max_num_losses = 0
+    for uid in uids:
+        losses = uid_to_raw_losses.get(uid)
+        if losses is not None and len(losses) > 0:
+            max_num_losses = max(max_num_losses, len(losses))
+
+    if max_num_losses == 0: # Handle case where no losses are present
+        return {
+            "final_scores_dict": {uid: 0.0 for uid in uids},
+            "win_rate_dict": {uid: 0.0 for uid in uids},
+            "agg_gap_dict": {uid: np.nan for uid in uids},
+            "sep_score_dict": {uid: np.nan for uid in uids},
+            "raw_composite_score_dict": {uid: np.nan for uid in uids},
+        }
+
+    mat = np.full((len(uids), max_num_losses), np.nan, dtype=float)
+
+    for i, uid in enumerate(uids):
+        raw_losses = uid_to_raw_losses.get(uid)
+        if raw_losses is not None and len(raw_losses) > 0:
+            mat[i, :len(raw_losses)] = raw_losses
+
+    # If there's only one miner or all scores are NaN, we can't compute meaningful statistics
+    if len(uids) == 0 or np.all(np.isnan(mat)):
+        # Return default values to prevent errors later
+        return  {
+            "final_scores_dict": {uid: 0.0 for uid in uids},
+            "win_rate_dict": {uid: 0.0 for uid in uids},
+            "agg_gap_dict": {uid: np.nan for uid in uids},
+            "sep_score_dict": {uid: np.nan for uid in uids},
+            "raw_composite_score_dict": {uid: np.nan for uid in uids},
+        }
 
     # Compute components
     try:
@@ -76,9 +111,14 @@ def compute_scores(
         agg_gap_arr = compute_aggregate_gap(ci_lo, ci_hi) 
         sep_score_arr = normalize_gap_scores(agg_gap_arr)
     except Exception as e:
-        empty_scores = {uid: 0.0 for uid in uids}
-        empty_details = {uid: np.nan for uid in uids}
-        return empty_scores, empty_details, empty_details, empty_details, empty_details
+        logging.error(f"Error computing scores: {e}{traceback.format_exc()}") # Added traceback
+        return  {
+            "final_scores_dict": {uid: 0.0 for uid in uids},
+            "win_rate_dict": {uid: 0.0 for uid in uids},
+            "agg_gap_dict": {uid: np.nan for uid in uids},
+            "sep_score_dict": {uid: np.nan for uid in uids},
+            "raw_composite_score_dict": {uid: np.nan for uid in uids},
+        }
 
     # Composite score
     raw_composite_score_arr = win_rate_arr * sep_score_arr
@@ -100,51 +140,77 @@ def compute_scores(
         "sep_score_dict": sep_score_dict,
         "raw_composite_score_dict": raw_composite_score_dict,
     }
-   
-
 
 def score_time_series_model(
-    model: torch.nn.Module,
-    series: typing.Union[np.ndarray, torch.Tensor],
-    evaluator: CRPSEvaluator,
+    model: Any,
+    samples: List[List[Dict[str, Any]]],  # List of batches per task
+    eval_tasks: List[Any],  # List of EvalTask objects
     device: str,
-    task: EvalTask,
-    score_details: typing.Dict[str, ScoreDetails],
-) -> float:
-    """
-    Runs a time-series model on the given input and returns its loss.
+    task_or_seed: Any,
+) -> Tuple[float, Dict[str, "ScoreDetails"]]:
+    try:
+        model.to(device)
+        model.eval()
 
-    Args:
-        model (torch.nn.Module): The time-series model.
-        series (np.ndarray or torch.Tensor): The input time-series batch.
-        evaluator (CRPSEvaluator): An instance that knows how to compute loss.
-        device (str): Device identifier.
-        task (EvalTask): The evaluation task.
-        score_details (typing.Dict[str, ScoreDetails]): A dictionary to store the score details.
+        all_losses = []
+        score_details = {}
 
+        for eval_task, task_batches in zip(eval_tasks, samples):
+            EvaluatorClass = EVALUATION_BY_COMPETITION[eval_task.method_id.value]
+            evaluator = EvaluatorClass()
 
-    Returns:
-        float: The computed loss.
-    """
-    model.to(device)
-    model.eval()
+            for i, batch in enumerate(task_batches):
+                inputs = batch["inputs_padded"].to(device)
+                targets = batch["targets_padded"].to(device)
+                
+                forecast_len = targets.shape[1]
 
-    if not isinstance(series, torch.Tensor):
-        series_tensor = torch.tensor(series, dtype=torch.float32, device=device)
-    else:
-        series_tensor = series.to(device)
+                with torch.inference_mode():
+                    preds = model.forecast(
+                        inputs=inputs.unsqueeze(-1),
+                        prediction_length=forecast_len,
+                        quantiles=eval_task.quantiles
+                    )
+                
+                batch_losses = []
+                for j in range(preds.shape[0]):
+                    actual_len = batch["actual_target_lengths"][j]
+                    
+                    target_j = targets[j, :actual_len].cpu().numpy()
+                    pred_j = preds[j, :actual_len].cpu().numpy()
 
-    with torch.inference_mode():
-        preds = model(series_tensor) # TODO add generate_autoregressive()
-        loss = evaluator.evaluate(series_tensor.cpu().numpy(), preds.cpu().numpy())
-        score_details[task.name] = ScoreDetails(
-                raw_score= loss,
-                norm_score=None,
-                weighted_norm_score=None,
-                num_samples=len(series),
-            )
+                    # The model outputs (Time, Features, Quantiles), e.g., (341, 1, 9).
+                    # The evaluator expects (Time, Ensemble), e.g., (341, 9).
+                    # np.squeeze() will remove the middle dimension of feature (need to change for multivariate down the line)
+                    if pred_j.ndim == 3 and pred_j.shape[1] == 1:
+                        pred_j = np.squeeze(pred_j, axis=1)
 
-    return loss.mean(), score_details 
+                    if target_j.shape[0] > 0 and pred_j.shape[0] > 0:
+                        loss_j = evaluator.evaluate(target_j, pred_j)
+                        if np.isfinite(loss_j):
+                            batch_losses.append(loss_j)
+
+                if batch_losses:
+                    all_losses.extend(batch_losses)
+
+        if not all_losses:
+            mean_score = math.inf
+            all_losses_flat = np.array([math.inf])
+        else:
+            all_losses_flat = np.array(all_losses)
+            mean_score = float(np.mean(all_losses_flat))
+
+        score_details["flat_evaluation"] = ScoreDetails(
+            raw_score=all_losses_flat,
+            norm_score=None,
+            weighted_norm_score=None,
+            num_samples=len(all_losses_flat),
+        )
+
+        return mean_score, score_details
+    except Exception as e:
+        logging.error(f"Error in score_time_series_model: {e}{traceback.format_exc()}")
+        return math.inf, {"error": ScoreDetails(raw_score=np.array([math.inf]), num_samples=0)}
 
 def compute_competitive_uids(
     uid_to_score: typing.Dict[int, float],

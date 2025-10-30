@@ -14,10 +14,7 @@ def assert_registered(wallet: bt.wallet, metagraph: bt.metagraph) -> int:
     """
     if wallet.hotkey.ss58_address not in metagraph.hotkeys:
         raise ValueError(
-            f"You are not registered. 
-Use: 
-`btcli s register --netuid {metagraph.netuid}` to register via burn 
- or btcli s pow_register --netuid {metagraph.netuid} to register with a proof of work"
+            f"You are not registered. Use: `btcli s register --netuid {metagraph.netuid}` to register via burn or btcli s pow_register --netuid {metagraph.netuid} to register with a proof of work"
         )
     uid = metagraph.hotkeys.index(wallet.hotkey.ss58_address)
     logging.info(

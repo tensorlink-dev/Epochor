@@ -1,14 +1,7 @@
-"""
-Evaluator for the Epochor subnet, using the Continuous Ranked Probability Score.
-
-This module provides the CRPSEvaluator, which uses the properscoring library
-to compute the CRPS for ensemble forecasts.
-"""
-
 import numpy as np
 from properscoring import crps_ensemble
-
-from epochor.config import EPOCHOR_CONFIG
+from epochor.evaluation.method import EvalMethodId
+from epochor.utils import logging
 
 
 class BaseEvaluator:
@@ -16,100 +9,114 @@ class BaseEvaluator:
     Abstract base class for evaluation metrics.
     """
 
-    def evaluate(self, target: np.ndarray, prediction: np.ndarray) -> float:
+    def evaluate(self, target: np.ndarray, prediction: np.ndarray) -> np.ndarray:
         """
         Compute score (e.g., loss, CRPS, accuracy) between prediction and ground truth.
 
         Args:
-            target: array of ground truth values.
-            prediction: array of predicted values or ensembles.
+            target: array of ground truth values. Shape (T,) or (B, T)
+            prediction: array of predicted values or ensembles. Shape (T, N) or (B, T, N) or (B, T, 1, N)
 
         Returns:
-            A scalar float score for the prediction.
+            An array of scores, one value per time series (shape (B,)).
+            If single series: a scalar array (shape ()).
         """
         raise NotImplementedError
-
-    def score_to_weight(self, scores: np.ndarray) -> np.ndarray:
-        """
-        Convert raw scores into normalized weights. Lower scores are considered better.
-
-        The conversion uses a power law and optional boosting based on configuration.
-        A lower score results in a higher weight.
-
-        Args:
-            scores: array of raw performance scores (lower is better).
-
-        Returns:
-            array of normalized weights summing to 1.
-        """
-        # Invert scores so that lower scores get higher values.
-        # Add a small epsilon to avoid division by zero.
-        inverted_scores = 1 / (scores + 1e-9)
-        
-        # Replace any NaNs or infinities that may have occurred
-        inverted_scores = np.nan_to_num(inverted_scores, nan=0.0, posinf=np.nanmax(inverted_scores[np.isfinite(inverted_scores)]))
-        
-        # Clip scores to be non-negative
-        processed_scores = np.clip(inverted_scores, 0.0, None)
-
-        if EPOCHOR_CONFIG.reward_exponent != 1.0:
-            processed_scores = np.power(processed_scores, EPOCHOR_CONFIG.reward_exponent)
-
-        total = processed_scores.sum()
-        if total <= 0:
-            # If all scores are zero, return uniform weights
-            return np.ones_like(processed_scores) / len(processed_scores) if len(processed_scores) > 0 else np.array([])
-
-        return processed_scores / total
 
 
 class CRPSEvaluator(BaseEvaluator):
     """
-    Evaluator using the ensemble Continuous Ranked Probability Score (CRPS).
-
-    This evaluator is designed for probabilistic forecasting, where the prediction
-    is an ensemble of possible future outcomes.
+    Extended CRPS evaluator that handles batched time series.
     """
-    def eval_task(self) -> str:
-        """Returns the name of the evaluation task."""
-        return 'CRPS'
 
-    def evaluate(self, target: np.ndarray, prediction: np.ndarray) -> float:
+    def evaluate(self, target: np.ndarray, prediction: np.ndarray) -> np.ndarray:
         """
-        Computes the mean ensemble CRPS.
-
         Args:
-            target (np.ndarray): Ground truth values, expected shape [T].
-            prediction (np.ndarray): Ensemble predictions, expected shape [T, N_ensemble_members].
-                                     If a 1D array is passed, it will be treated as an
-                                     ensemble with a single member.
+            target: observations, expected shape (T,) or (B, T)
+            prediction: forecasts, expected shape (T, N) or (B, T, N) or (B, T, 1, N)
 
         Returns:
-            float: The mean CRPS score over the time series. A lower score is better.
+            If single series: a scalar array (shape ())
+            If batched:      array of shape (B,). Each element is the mean CRPS for that series.
         """
         target = np.asarray(target)
         prediction = np.asarray(prediction)
 
-        # --- Shape Validation ---
-        if target.ndim != 1:
-            raise ValueError(f"Target must be a 1D array, but got shape {target.shape}")
-        
-        if prediction.ndim != 2:
-            # Handle the case of a deterministic forecast by creating a dummy ensemble dimension
-            if prediction.ndim == 1:
-                prediction = prediction[:, np.newaxis]
+        # --- Sanitize inputs to replace NaNs/Infs ---
+        if not np.all(np.isfinite(target)):
+            logging.warning("Non-finite values found in target, replacing with 0.")
+            target = np.nan_to_num(target, nan=0.0, posinf=0.0, neginf=0.0)
+
+        if not np.all(np.isfinite(prediction)):
+            logging.warning(f"Non-finite values found in prediction (shape: {prediction.shape}), replacing with 1e9.")
+            prediction = np.nan_to_num(prediction, nan=1e9, posinf=1e9, neginf=-1e9)
+
+        # --- Normalize prediction to have 3 dimensions (B, T, N) or 2 dimensions (T, N) ---
+        # Handle 4D prediction (B, T, 1, N) -> squeeze out the 1-sized feature dimension
+        if prediction.ndim == 4:
+            if prediction.shape[2] == 1: # If the 3rd dim is the problematic feature dim of size 1
+                prediction = prediction.squeeze(axis=2) # Result: (B, T, N)
             else:
-                raise ValueError(f"Prediction must be a 2D ensemble array, but got shape {prediction.shape}")
-        
-        if target.shape[0] != prediction.shape[0]:
-            raise ValueError(f"Time dimension mismatch: target shape {target.shape[0]} vs prediction shape {prediction.shape[0]}")
+                raise ValueError(f"Prediction 4D shape {prediction.shape} must have a 1-sized 3rd dimension if it represents a single feature.")
 
-        # --- CRPS Calculation ---
-        # crps_ensemble returns a score for each of the T observations.
-        # We take the mean to get a single scalar score for the entire series.
-        crps_scores = crps_ensemble(observations=target, forecasts=prediction)
-        
-        return float(np.mean(crps_scores))
+        # Handle 2D prediction: (T, N) or (B, T). If (B, T) or (T,), add ensemble dim N=1.
+        if prediction.ndim == 2:
+            # If target is 2D (B, T) and prediction is 2D (B, T), it implies N=1 ensemble per series
+            if target.ndim == 2 and target.shape == prediction.shape:
+                prediction = prediction[..., np.newaxis] # Result: (B, T, 1)
+            # If target is 1D (T) and prediction is 1D (T), it implies N=1 ensemble for a single series
+            elif target.ndim == 1 and target.shape == prediction.shape:
+                prediction = prediction[..., np.newaxis] # Result: (T, 1)
+            # If target is 1D (T) and prediction is 2D (T, N) with N > 1, it's already correct.
+            # No change needed.
+            elif target.ndim == 1 and prediction.shape[0] == target.shape[0] and prediction.shape[1] > 1:
+                pass
+            else:
+                raise ValueError(f"Unsupported 2D prediction shape {prediction.shape} for target shape {target.shape}. Expected (T,N) or (B,T) as prediction for single series or (B,T) for batched target.")
+        elif prediction.ndim == 1: # If prediction is 1D (T,), assume N=1 ensemble (for single series case)
+             if target.ndim == 1 and target.shape == prediction.shape:
+                 prediction = prediction[..., np.newaxis] # Result: (T, 1)
+             else:
+                 raise ValueError(f"Unsupported 1D prediction shape {prediction.shape} for target shape {target.shape}. Expected (T,).")
+
+        # After normalization, prediction should be 3D (B, T, N) or 2D (T, N).
+
+        # --- Validate the overall dimensionality and shape consistency before CRPS calculation ---
+        if target.ndim == 2: # Batched case: target (B, T)
+            B_target, T_target = target.shape
+            if prediction.ndim != 3: # Must be (B, T, N) for batched target
+                raise ValueError(f"For batched target {target.shape}, prediction must be 3D (B, T, N) after normalization, but got {prediction.shape}")
+            B_pred, T_pred, N_ensemble = prediction.shape
+
+            if B_pred != B_target or T_pred != T_target:
+                raise ValueError(f"Shape mismatch in batched evaluation: target {target.shape}, prediction {prediction.shape}. Batch and Time dimensions must match.")
+
+            # Compute CRPS for each time series in the batch
+            batch_scores = []
+            for i in range(B_target):
+                # crps_ensemble expects observations=(T,) and forecasts=(T, N)
+                series_crps = crps_ensemble(observations=target[i], forecasts=prediction[i])
+                batch_scores.append(np.mean(series_crps)) # Mean CRPS over time steps for this series
+            return np.array(batch_scores) # Return array of shape (B,)
+
+        elif target.ndim == 1: # Single-series case: target (T,)
+            T_target = target.shape[0]
+            if prediction.ndim != 2: # Must be (T, N) for single-series target
+                raise ValueError(f"For single series target {target.shape}, prediction must be 2D (T, N) after normalization, but got {prediction.shape}")
+            T_pred, N_ensemble = prediction.shape
+
+            if T_pred != T_target:
+                raise ValueError(f"Length mismatch in single series evaluation: target {target.shape[0]} vs pred {prediction.shape[0]}. Time dimension must match.")
+
+            # For single series, crps_ensemble returns (T,). Average it to a scalar array.
+            return np.mean(crps_ensemble(observations=target, forecasts=prediction)) # Returns scalar array ()
+        else:
+            # This case should ideally be caught by the initial check, but as a fallback
+            raise ValueError(f"Unhandled target dimension: {target.ndim}. Target must be 1D or 2D.")
 
 
-__all__ = ["BaseEvaluator", "CRPSEvaluator"]
+EVALUATION_BY_COMPETITION = {
+    EvalMethodId.CRPS_LOSS.value: CRPSEvaluator,
+}
+
+__all__ = ["BaseEvaluator", "CRPSEvaluator", "EVALUATION_BY_COMPETITION"]

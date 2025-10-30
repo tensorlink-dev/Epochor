@@ -3,143 +3,147 @@
     <img src="docs/assets/epochor_logo.png#gh-light-mode-only" width="300px">
 </div>
 
-# Epochor Subnet
+# Epochor Subnet | SN13
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Our Mission
-Our mission is to democratize temporal intelligence by building an open-source, decentralized platform for time-series modeling and forecasting—empowering anyone, anywhere, to develop, share, and deploy state-of-the-art predictive models across industries and domains. We strive to catalyze collective innovation in time-series AI, ensuring transparent, reproducible, and incentive-aligned progress toward robust, generalist temporal reasoning for the benefit of all.
-
-## 📜 Overview
-
-Epochor is a Bittensor subnet that evaluates and ranks time-series models on both synthetic and real-world datasets, benchmarking them against competition-specific metrics—beginning with probabilistic forecasting via CRPS—and aggregating results to identify the leader. Inspired by Pretrain’s winner-takes-all scoring, it awards tokens exclusively to the top models, driving continual innovation and refinement of robust, general-purpose temporal forecasting systems.
-
-Think of Epochor as Pretrain for time series models.
-
-## 🚀 Quick Start
-
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/badger-fi/epochor-subnet.git
-    cd epochor-subnet
-    ```
-
-2.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  **Set up your environment:**
-    Create a `.env` file from the example and add your API keys:
-    ```bash
-    cp .env.example .env
-    # Edit .env with your WANDB_API_KEY and HF_TOKEN
-    ```
-
-4.  **Run a neuron:**
-    *   **Validator:** See the [How Validators Operate](#how-validators-operate) section.
-    *   **Miner:** See the [How Miners Operate](#how-miners-operate) section.
-
-## ⚙️ Subnet Architecture & Scoring Mechanism
-
-The Epochor subnet uses a multi-stage process to evaluate and reward miners for their time-series forecasting models. The core of this mechanism is designed to be fair, robust, and to incentivize the development of high-quality models.
-
-### Scoring Process Breakdown:
-
-1.  **Data Generation**: Validators generate synthetic time-series datasets. This ensures that evaluation tasks are new and unpredictable for each scoring cycle, preventing miners from simply memorizing or overfitting to a static dataset.
-
-2.  **Task Execution**: Miners push their models to Hugging Face. Validators then pull the models and use them to generate predictions for future time points in the series.
-
-3.  **Evaluation (CRPS)**: The primary metric for our first competition is the **Continuous Ranked Probability Score (CRPS)**. CRPS is a sophisticated metric that assesses both the accuracy and the probabilistic nature of a forecast. A lower CRPS score indicates a better forecast.
-
-4.  **Score Aggregation & Ranking**: To create a stable and reliable measure of a miner's long-term performance, raw CRPS scores are used to calculate a model's **Win Rate** and **Gap Score**. These are then combined into a composite score, which is smoothed using an **Exponential Moving Average (EMA)**.
-
-    *   **Win Rate**: Measures how frequently a model outperforms others in head-to-head comparisons on the same datasets. A model "wins" if its CRPS score is lower than a competitor's.
-    
-    *   **Gap Score**: Measures the *statistical significance* of the performance differences between models. It answers the question: "Is a model's high Win Rate due to genuine superiority or just random chance?" This is done by analyzing the statistical separation between models' CRPS confidence intervals.
-
-    *   **Composite Score**: The final score is a combination of these two metrics, rewarding models that both win frequently and win decisively.
-        ```
-        Composite Score = Win Rate * Gap Score
-        ```
-
-5.  **Weight Allocation**: The final, smoothed scores are converted into on-chain "weights". These weights determine the proportion of network rewards (TAO) each miner receives. This process encourages continuous improvement and the development of genuinely powerful and generalizable time-series forecasting models.
-
-## 🧠 Why Time-Series Foundational Models?
-
-### Endogenous Benefits (within the Bittensor Ecosystem)
-
-*   **Model-First Time-Series Backbone**: Establishes a powerful, generalist temporal representation engine that downstream prediction subnets can fine-tune.
-*   **Robust Models for Prediction-First Subnets**: Provides high-quality pretrained weights, allowing specialized subnets to achieve top performance with less data.
-*   **Ecosystem Strengthening**: Acts as a shared temporal substrate that aligns reward signals and accelerates research cycles.
-*   **Foundation for Multimodal AGI**: Lays the time-series “pillar” necessary for integrating temporal reasoning alongside vision and language.
-
-### Exogenous Benefits & Industry Impact
-
-*   **Universal Forecasting & Classification**: Powers critical tasks in finance, sales, climate modeling, and IoT.
-*   **Access to a $10B+ Market**: Addresses a massive combined industry opportunity where accurate forecasts drive value.
-*   **Vertical-Specific Model Extensions**: Enables rapid customization for enterprise use cases (e.g., retail, energy).
-*   **Edge & Embedded Deployments**: Supports lightweight variants for on-device inference in industrial and consumer IoT.
-
-## How Validators Operate
-
-Validators are responsible for maintaining the integrity of the network.
-
-**Responsibilities:**
-*   Stay synchronized with the Bittensor network.
-*   Generate evaluation tasks for miners.
-*   Query miners and evaluate their submissions.
-*   Track miner performance using an EMA.
-*   Allocate rewards and set weights on the blockchain.
-*   Log operations and metrics to Weights & Biases (WandB).
-
-**Running a Validator:**
-```bash
-python examples/run_validator.py \
-    --wallet.name <your_validator_wallet> \
-    --wallet.hotkey <your_validator_hotkey> \
-    --subtensor.network <network_name> \
-    --netuid <epochor_netuid>
-```
-
-## How Miners Operate
-
-Miners are the core contributors to the network.
-
-**Responsibilities:**
-*   Develop and train time-series forecasting models.
-*   Push models to Hugging Face.
-*   Serve models via a Bittensor Axon.
-*   Respond to validator queries with predictions.
-
-**Running a Miner:**
-```bash
-python your_miner_script.py \
-    --wallet.name <your_miner_wallet> \
-    --wallet.hotkey <your_miner_hotkey> \
-    --subtensor.network <network_name> \
-    --netuid <epochor_netuid>
-```
-
-## Project Structure
-
-*   `epochor/`: Core logic for the subnet.
-    *   `config.py`: Configuration for parameters like EMA span and reward strategy.
-    *   `validator.py`: Main validator implementation.
-    *   `rewards.py`: Reward allocation strategies.
-    *   `ema_tracker.py`: Exponential Moving Average tracking utility.
-*   `examples/`: Example scripts for running neurons.
-*   `template/`: Bittensor neuron templates.
-*   `tests/`: Unit and integration tests.
-
-## 🛡️ Safety and Best Practices
-
-*   **Secure Your Keys:** Never share your wallet keys or commit them to version control.
-*   **Resource Management:** Monitor the computational resources your neuron consumes.
-*   **Test Thoroughly:** Test your neurons in a local or testnet environment before deploying.
-*   **Stay Updated:** Keep your Bittensor and subnet code up to date.
-*   **Monitor Your Neuron:** Regularly check your neuron's logs and performance.
+Our mission is to incentivize and democratize temporal intelligence. We are building an open-source, decentralized platform for time-series models that empowers anyone, anywhere, to develop and share state-of-the-art predictive models. By fostering collective innovation, we aim to ensure transparent, reproducible, and incentive-aligned progress towards robust, generalist temporal reasoning for the economic benefit of all.
 
 ---
 
-This README provides a foundational understanding of the Epochor subnet. For the most up-to-date information, please refer to the latest code and official announcements.
+## 📜 Overview
+
+Epochor is a Bittensor subnet that **incentivizes the creation of foundational time-series models**. Miners train models and publish them to **Hugging Face Hub**, while validators fetch these models, evaluate them on **synthetic and real-world datasets**, and score them with competition-specific metrics (currently **CRPS**).  
+
+Competitions are rotated dynamically, and **the top-performing miner in each competition earns the largest share of rewards**, while other miners still receive proportionally smaller allocations. This **winner-makes-most** structure creates strong incentives for innovation while maintaining fairness across participants.
+
+This codebase builds upon the work of the [Pretrain Subnet](https://github.com/opentensor/pretrain).
+
+---
+
+## Subnet Flow
+
+```
+ Miner (train + push to HF) 
+        │
+        ▼
+ HF Model Store (base_hf_model_store.py)
+        │
+        ▼
+ Validator (validator.py)
+        │
+ ┌─────────────── Services ────────────────┐
+ │ CompetitionManager → select dataset     │
+ │ ModelManager → fetch model from HF      │
+ │ EvaluationService → run forecasts       │
+ │ ScoringService → compute metric (CRPS)  │
+ │ State/EMA → smooth scores               │
+ │ WeightSetter → submit set_weights       │
+ │ Clone Assessment → detect duplicates    │
+ └─────────────────────────────────────────┘
+        │
+        ▼
+ Subtensor (on-chain weights & rewards)
+        │
+        ▼
+ Rewards distributed (validation/rewards.py)
+```
+
+---
+
+## ✨ Key Features & Design Principles
+
+Epochor's design incorporates several key features to ensure a fair, competitive, and exploitation-resistant environment.
+
+### 🏆 Winner-Makes-Most Incentives
+Rewards are weighted so the **#1 ranked miner receives the majority of emissions** for each competition. Other miners receive smaller proportional shares. This ensures competitiveness while still rewarding participation.
+
+### 🛡️ Sybil Resistance
+The winner-makes-most mechanism makes Sybil attacks unprofitable. Running many mediocre nodes yields minimal returns — miners must focus resources into building genuinely competitive models.
+
+### 💡 Innovation Over Imitation
+`assess_clones.py` enforces penalties on duplicate or plagiarized models. A challenger must demonstrate **clear improvement in the scoring metric** to overtake the leader, forcing true innovation.
+
+### 🧠 Zero-Shot Generalization
+Validators draw from a **broad and rotating set of datasets** (synthetic + real). Miners never know which competition comes next, ensuring that rewarded models are **generalist** rather than overfit.
+
+### ⚙️ Standardized Architecture
+All models must be implemented with **[Temporal](https://github.com/your-repo/temporal)** for compatibility and fairness. This ensures seamless evaluation and reproducibility.
+
+---
+
+## ⚙️ Scoring Mechanism
+
+All competitions use a **consistent scoring pipeline**, with the **current primary metric being CRPS** (Continuous Ranked Probability Score). Future competitions may introduce additional or alternative metrics as needed.
+
+1. **Data Generation** – Fresh datasets (synthetic GP kernels, financial returns, etc.) are created or loaded each round.  
+2. **Forecasting** – Validators fetch miner models from Hugging Face and run them on unseen data.  
+3. **Evaluation** – Forecasts are scored using **CRPS** (ensemble CRPS when probabilistic sampling is available).  
+4. **Smoothing** – Scores are tracked with an **Exponential Moving Average (EMA)** for stability.  
+5. **Clone Assessment** – Duplicate detection prevents trivial copies from gaming rewards.  
+6. **Reward Allocation** – The **winner receives the majority share**, others get smaller proportional weights.  
+
+---
+
+## 📂 Project Structure
+
+```
+epochor/
+ ├─ datasets/       # dataset loaders & IDs
+ ├─ evaluation/     # eval tasks, scoring methods
+ ├─ generators/     # synthetic time-series kernels
+ ├─ model/          # model stores, tracker, updater
+ ├─ validation/     # EMA tracker, rewards, clone detection
+ ├─ utils/          # helper functions
+neurons/validator/
+ ├─ competition_manager.py  # schedules datasets
+ ├─ evaluation_service.py   # runs model inference
+ ├─ model_manager.py        # handles HF model pulls
+ ├─ scoring_service.py      # scoring logic (currently CRPS)
+ ├─ state.py                # EMA + state tracking
+ ├─ weight_setter.py        # submits weights
+ └─ validator.py            # main validator loop
+```
+
+---
+
+## 🚀 Quick Start
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/tensorlink-dev/epochor-subnet.git
+   cd epochor-subnet
+   ```
+
+2. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Set up environment**
+   ```bash
+   cp .env.example .env
+   # Add your WANDB_API_KEY and HF_TOKEN
+   ```
+
+4. **Run a neuron**
+   - Validator:
+     ```bash
+     python examples/run_validator.py        --wallet.name <validator_wallet>        --wallet.hotkey <validator_hotkey>        --subtensor.network <network_name>        --netuid <epochor_netuid>
+     ```
+   - Miner:
+     ```bash
+     python your_miner_script.py        --wallet.name <miner_wallet>        --wallet.hotkey <miner_hotkey>        --subtensor.network <network_name>        --netuid <epochor_netuid>
+     ```
+
+---
+
+## 🛡️ Safety and Best Practices
+- **Secure Your Keys** – Never commit wallet keys.  
+- **Resource Management** – Monitor GPU/CPU usage.  
+- **Testing** – Validate in testnet before mainnet deployment.  
+- **Stay Updated** – Sync with latest Bittensor + Epochor changes.  
+- **Monitor Logs** – Track metrics in WandB and logs.  
+
+---

@@ -1,8 +1,8 @@
-"""
-Statistical utilities for Epochor scoring.
+# """
+# Statistical utilities for Epochor scoring.
 
-Includes win-rate, bootstrap CI, CI-gap scoring, and normalization.
-"""
+# Includes win-rate, bootstrap CI, CI-gap scoring, and normalization.
+# """
 
 import numpy as np
 from typing import Tuple, Union # Added Union for the new return type
@@ -18,14 +18,29 @@ def compute_per_round_win_rate(losses: np.ndarray) -> np.ndarray:
         win_matrix: shape (N_miners, T_rounds), each value ∈ [0, 1]
     """
     N, T = losses.shape
-    win_matrix = np.empty((N, T), dtype=float)
+    # Initialize with NaNs to clearly distinguish from a zero win rate.
+    win_matrix = np.full((N, T), np.nan, dtype=float)
 
     for t in range(T):
         col = losses[:, t]
-        matrix = (col[:, None] < col[None, :]).astype(float)
-        # Avoid division by zero if N=1 (should not happen in practice with multiple miners)
-        win_matrix[:, t] = matrix.sum(axis=1) / (N - 1) if N > 1 else 0.0
+        # NaN-awareness: Create a mask for valid (non-NaN) scores in the current round.
+        valid_indices = ~np.isnan(col)
 
+        # Only proceed if there are at least two miners with valid scores to compare.
+        if np.sum(valid_indices) < 2:
+            win_matrix[valid_indices, t] = 0.0  # If no one to compete against, win rate is 0.
+            continue
+            
+        valid_scores = col[valid_indices]
+        
+        # Perform pairwise comparison only on the valid scores.
+        matrix = (valid_scores[:, None] < valid_scores[None, :]).astype(float)
+        
+        wins = matrix.sum(axis=1)
+        num_competitors = len(valid_scores) - 1
+        
+        # Assign the calculated win rate back to the original positions in the win_matrix.
+        win_matrix[valid_indices, t] = wins / num_competitors if num_competitors > 0 else 0.0
 
     return win_matrix
 
@@ -40,7 +55,12 @@ def compute_overall_win_rate(losses: np.ndarray) -> np.ndarray:
     Returns:
         overall win rate vector, shape (N,)
     """
-    return compute_per_round_win_rate(losses).mean(axis=1)
+    per_round_wins = compute_per_round_win_rate(losses)
+    # NaN-awareness: Use np.nanmean to average only the valid (non-NaN) rounds for each miner.
+    with np.errstate(invalid='ignore'): # Suppress warnings for rows that are all NaN
+        overall_wins = np.nanmean(per_round_wins, axis=1)
+    # If a miner had no valid rounds, their nanmean will be NaN. Default this to 0.0.
+    return np.nan_to_num(overall_wins, nan=0.0)
 
 
 def bootstrap_ci(data: np.ndarray, B: int = 2000, alpha: float = 0.05) -> Tuple[float, float, float]:
@@ -55,18 +75,24 @@ def bootstrap_ci(data: np.ndarray, B: int = 2000, alpha: float = 0.05) -> Tuple[
     Returns:
         (mean, lower, upper)
     """
-    T = data.shape[0]
+    # NaN-awareness: Filter out NaNs from the data before performing bootstrapping.
+    valid_data = data[~np.isnan(data)]
+    T = valid_data.shape[0]
+
     if T < 2:
-        # If only one sample, mean is the sample itself, CI is undefined or point estimate.
-        # Returning mean and NaNs for bounds or mean itself for bounds might be alternatives.
-        # For now, raising an error as CI is not well-defined.
-        raise ValueError("Bootstrap requires at least 2 samples.")
+        # Instead of raising ValueError, return NaNs for CI bounds
+        mean_val = np.mean(valid_data) if T > 0 else np.nan
+        return mean_val, np.nan, np.nan # Return mean, nan, nan for consistency
+        
+    # Sample with replacement from only the valid data points.
     idx = np.random.randint(0, T, size=(B, T))
-    samples = data[idx]
-    means = samples.mean(axis=1)
+    samples = valid_data[idx]
+    
+    means = np.mean(samples, axis=1)
+    
     lower = np.percentile(means, 100 * alpha / 2)
     upper = np.percentile(means, 100 * (1 - alpha / 2))
-    return data.mean(), lower, upper
+    return np.mean(valid_data), lower, upper
 
 
 def compute_ci_bounds(loss_matrix: np.ndarray, B: int = 2000, alpha: float = 0.05) -> Tuple[np.ndarray, np.ndarray]:
@@ -81,13 +107,11 @@ def compute_ci_bounds(loss_matrix: np.ndarray, B: int = 2000, alpha: float = 0.0
     hi = np.empty(N, dtype=float)
 
     for i in range(N):
-        if T < 2: # Handle cases where a miner might have less than 2 data points
-            lo[i] = np.nanmean(loss_matrix[i]) if T > 0 else np.nan
-            hi[i] = np.nanmean(loss_matrix[i]) if T > 0 else np.nan
-        else:
-            _, l, h = bootstrap_ci(loss_matrix[i], B=B, alpha=alpha)
-            lo[i] = l
-            hi[i] = h
+        # Now bootstrap_ci handles T < 2 and NaNs, no need for separate checks here.
+        # Just directly unpack.
+        _, l, h = bootstrap_ci(loss_matrix[i], B=B, alpha=alpha)
+        lo[i] = l
+        hi[i] = h
     return lo, hi
 
 
@@ -109,69 +133,27 @@ def compute_aggregate_gap(ci_lo: np.ndarray, ci_hi: np.ndarray, return_raw_matri
     if N == 0:
         return np.array([]) if not return_raw_matrix else (np.array([]), np.array([[]]))
 
-    # ci_hi[:, None] creates a column vector (N,1)
-    # ci_lo[None, :] creates a row vector (1,N)
-    # Broadcasting results in an (N,N) matrix where gap[i, j] = ci_hi[i] - ci_lo[j]
-    # This represents how much miner i's upper bound exceeds miner j's lower bound.
-    # We are interested in the opposite: how much miner i's lower bound (worst case for i)
-    # exceeds other miners' upper bounds (best case for others).
-    # So, we want ci_lo_i - ci_hi_j. Or, more intuitively, how separated is miner i from j.
-    # A positive value in gap_matrix[i,j] would mean miner i's worst case (ci_lo[i])
-    # is better than miner j's best case (ci_hi[j]).
-    # The sum of these positive differences indicates a strong separation.
-
-    # The provided code was: gap = ci_hi[:, None] - ci_lo[None, :]
-    # This calculates gap[i,j] = ci_hi[i] - ci_lo[j].
-    # Let's re-evaluate what "aggregate gap" aims to measure.
-    # If it's about how much a miner's CI *does not overlap* with others,
-    # for miner `i`, we want to see how much `ci_lo[i]` is above `ci_hi[j]` for all `j != i`.
-    # Or, how much `ci_hi[i]` is below `ci_lo[j]` for all `j != i`.
-
-    # The current sum `gap.sum(axis=1)` with `gap = ci_hi[:, None] - ci_lo[None, :]` means:
-    # For miner `k`, sum_{j} (ci_hi[k] - ci_lo[j]). This doesn't seem right for "separation".
-
-    # Let's consider the definition from the prompt: "how much better each miner's worst-case
-    # (ci_lo) is compared to others' best-case (ci_hi)".
-    # For a given miner `i`, its worst case is `ci_lo[i]`.
-    # For any other miner `j`, its best case is `ci_hi[j]`.
-    # The "gap" for miner `i` against miner `j` is `ci_lo[i] - ci_hi[j]`.
-    # A larger positive value is better.
-    # The raw gap matrix would then be `gap_matrix[i,j] = ci_lo[i] - ci_hi[j]`.
-    # And `agg_gap[i] = sum_{j!=i} (ci_lo[i] - ci_hi[j])`.
-
-    raw_gap_matrix = ci_lo[:, None] - ci_hi[None, :]
-    np.fill_diagonal(raw_gap_matrix, 0.0) # Set self-gap to 0
-    
-    # Aggregate gap: sum of how much a miner's lower bound exceeds others' upper bounds.
-    # We should probably only sum positive gaps, or handle the interpretation carefully.
-    # The existing code `gap.sum(axis=1)` for `gap = ci_hi[:, None] - ci_lo[None, :]`
-    # and then `(agg_gap - hi) / (lo - hi)` for normalization (where more negative agg_gap became 1)
-    # implies that a more negative sum was better.
-    # If `agg_gap = sum(ci_hi_k - ci_lo_j)`, then a smaller sum is better if ci_hi_k is smaller (better loss)
-    # and ci_lo_j is larger. This is confusing.
-
-    # Let's stick to the structure of the existing code's computation of `gap` and its sum,
-    # as the normalization function `normalize_gap_scores` expects `agg_gap` where "More negative = better".
-    # Original: gap = ci_hi[:, None] - ci_lo[None, :]
-    # This means gap[row_k, col_j] = ci_hi[k] - ci_lo[j]
-    # agg_gap_k = sum_j (ci_hi[k] - ci_lo[j])
-    # If miner k is good, its ci_hi[k] is low. If other miners j are bad, their ci_lo[j] are high.
-    # So, (low_value - high_value) = very negative. This matches "More negative = better".
-
+    # This calculation remains the same, as it defines the gap metric.
+    # A good miner 'i' has a low ci_hi[i]. A bad miner 'j' has a high ci_lo[j].
+    # The difference ci_hi[i] - ci_lo[j] will be very negative for good miners.
+    # This matches the expectation that "More negative = better" for the normalization function.
     gap_matrix_for_sum = ci_hi[:, None] - ci_lo[None, :]
-    np.fill_diagonal(gap_matrix_for_sum, 0.0) # As per original logic
-    agg_gap_scores = gap_matrix_for_sum.mean(axis=1)
+    
+    # NaN-awareness: Ignore self-comparison by setting diagonal to NaN before averaging.
+    np.fill_diagonal(gap_matrix_for_sum, np.nan)
+    
+    # Use nanmean to correctly average the gaps, ignoring NaN values from self-comparison
+    # and any potential NaNs from the CI bounds themselves.
+    with np.errstate(invalid='ignore'):
+        agg_gap_scores = np.nanmean(gap_matrix_for_sum, axis=1)
+    
+    # Replace any resulting NaNs (e.g., if a miner had no one to compare against) with 0.
+    final_scores = np.nan_to_num(agg_gap_scores, nan=0.0)
 
     if return_raw_matrix:
-        # The "raw gap matrix" for debug/visualization should intuitively show miner i vs miner j.
-        # Let's define raw_gap_debug[i,j] as ci_lo[i] - ci_hi[j] (how much i's worst is better than j's best)
-        # This seems more intuitive for a "gap matrix" display.
-        # However, to be consistent with how agg_gap is used for normalization,
-        # perhaps the matrix that *led* to agg_gap_scores is more appropriate if "raw" means "intermediate".
-        # The prompt says "return raw gap matrix". Let's assume it's the matrix whose sum is `agg_gap_scores`.
-        return agg_gap_scores, gap_matrix_for_sum
+        return final_scores, gap_matrix_for_sum
     else:
-        return agg_gap_scores
+        return final_scores
 
 
 def normalize_gap_scores(agg_gap: np.ndarray) -> np.ndarray:
@@ -187,18 +169,23 @@ def normalize_gap_scores(agg_gap: np.ndarray) -> np.ndarray:
     Returns:
         normalized: shape (N,)
     """
-    if agg_gap.size == 0:
-        return np.array([])
-        
-    lo, hi = agg_gap.min(), agg_gap.max()
-    if np.isclose(lo, hi): # Handles case with one miner or all identical agg_gaps
+    # Handle empty or single-miner cases.
+    if agg_gap.size < 2:
         return np.ones_like(agg_gap)
-    # (agg_gap - hi) makes best scores (most negative) become (most_negative - hi), which is even more negative.
-    # (lo - hi) is (smallest_actual_gap - largest_actual_gap), which is negative.
-    # Division makes it positive. Largest value becomes (hi - hi) / (lo - hi) = 0.
-    # Smallest value becomes (lo - hi) / (lo - hi) = 1.
-    # This correctly maps most negative original agg_gap (best) to 1.
-    return (agg_gap - hi) / (lo - hi)
+        
+    # NaN-awareness: Use nanmin and nanmax to find the range, ignoring any NaNs.
+    lo, hi = np.nanmin(agg_gap), np.nanmax(agg_gap)
+    
+    # If all values are the same (or all NaN), return 1s.
+    if np.isclose(lo, hi) or np.isnan(lo):
+        return np.ones_like(agg_gap)
+        
+    # (agg_gap - hi) / (lo - hi) maps the range [lo, hi] to [1, 0].
+    # This correctly maps the most negative original agg_gap (best) to 1.
+    norm_scores = (agg_gap - hi) / (lo - hi)
+    
+    # Convert any remaining NaNs (e.g., from miners who had no valid scores) to 0 (the worst score).
+    return np.nan_to_num(norm_scores, nan=0.0)
 
 
 __all__ = [

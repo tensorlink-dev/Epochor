@@ -5,3 +5,13 @@ pytest>=8
 torch>=2
 numpy>=1
 setuptools>=68
+taoverse
+properscoring
+pytest-socket
+keylimiter
+temporal
+huggingface_hub
+matplotlib
+pandas
+wandb
+python-dotenv

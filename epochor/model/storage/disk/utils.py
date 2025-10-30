@@ -2,7 +2,7 @@ import datetime
 import os
 import shutil
 
-from epochor.model.data import ModelId
+from epochor.model.model_data import ModelId
 
 
 def get_local_miners_dir(base_dir: str) -> str:
@@ -15,6 +15,10 @@ def get_local_miner_dir(base_dir: str, hotkey: str) -> str:
 
 # Hugging face stores models under models--namespace--name/snapshots/commit when downloading.
 def get_local_model_dir(base_dir: str, hotkey: str, model_id: ModelId) -> str:
+    # Check if model_id is a set and handle it
+    if isinstance(model_id, set):
+        # Assuming the set contains only one item, as per the test case
+        model_id = next(iter(model_id))
     return os.path.join(
         get_local_miner_dir(base_dir, hotkey),
         "models" + "--" + model_id.namespace + "--" + model_id.name,

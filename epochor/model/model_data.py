@@ -1,71 +1,121 @@
 import dataclasses
-from typing import ClassVar, Optional, Any
-from temporal.models.base-model import  BaseTemporalModel
+import hashlib
+from typing import Optional, Any
+from temporal.models.base_model import BaseTemporalModel
+import math
 
 # The maximum bytes for metadata on the chain.
 MAX_METADATA_BYTES = 128
-# The length, in bytes, of a git commit hash.
-GIT_COMMIT_LENGTH = 40
-# The length, in bytes, of a base64 encoded sha256 hash.
-SHA256_BASE_64_LENGTH = 44
-# The max length, in characters, of the competition id
-MAX_COMPETITION_ID_LENGTH = 2
 
 
 @dataclasses.dataclass(frozen=True)
 class ModelId:
-    """Uniquely identifies a trained model"""
+    """
+    Uniquely identifies a trained model and produces a byte-bounded string
+    for on-chain commitment. It dynamically allocates space to ensure the
+    full string never exceeds MAX_METADATA_BYTES.
+    """
 
-    MAX_REPO_ID_LENGTH: ClassVar[int] = (
-        MAX_METADATA_BYTES
-        - GIT_COMMIT_LENGTH
-        - SHA256_BASE_64_LENGTH
-        - MAX_COMPETITION_ID_LENGTH
-        - 4  # separators
-    )
-
-    # Namespace where the model can be found. ex. Hugging Face username/org.
+    # Core identifier fields
     namespace: str
-
-    # Name of the model.
     name: str
-
-    # Identifier for competition
     competition_id: int
 
-    # Commit must be filled when trying to download from a remote store.
+    # Optional fields that are part of the on-chain commitment
     commit: Optional[str] = dataclasses.field(default=None)
-
-    # Hash is filled automatically when uploading to or downloading from a remote store.
-    hash: Optional[str] = dataclasses.field(default=None)
-
-    # The secure hash that's used for validation.
     secure_hash: Optional[str] = dataclasses.field(default=None)
 
+    # Local-only field, not part of the compressed string
+    hash: Optional[str] = dataclasses.field(default=None)
+
+
+    def _shorten_repo_id(self, repo_id: str, budget: int) -> str:
+        """
+        Ensures the repo ID string fits within the given byte budget. If it's too long,
+        it shortens the name part and appends a hash of the full original ID.
+        """
+        if len(repo_id.encode("utf-8")) <= budget:
+            return repo_id
+
+        # The hash tag will be 8 hex characters (4 bytes) plus a hyphen.
+        hash_tag = hashlib.blake2b(repo_id.encode("utf-8"), digest_size=4).hexdigest()
+        
+        # Calculate available space for the name, accounting for namespace, slashes, and the hash tag.
+        # We assume the format is "namespace/name"
+        namespace, name = self.namespace, self.name
+        available_for_name = budget - (len(namespace.encode("utf-8")) + 1 + len(hash_tag) + 1)
+        
+        if available_for_name <= 0:
+            # If there's no space for the name, just use the namespace and hash.
+            return f"{namespace}/{hash_tag}"
+            
+        # Safely slice the original name by characters until it fits the byte budget
+        short_name = ""
+        for char in name:
+            if len((short_name + char).encode('utf-8')) > available_for_name:
+                break
+            short_name += char
+
+        return f"{namespace}/{short_name}-{hash_tag}"
+
+
     def to_compressed_str(self) -> str:
-        """Returns a compressed string representation."""
-        return f"{self.namespace}:{self.name}:{self.commit}:{self.secure_hash}:{self.competition_id}"
+        """
+        Returns a compressed string representation that is guaranteed to be
+        less than or equal to MAX_METADATA_BYTES.
+        Format: "namespace/name:commit:secure_hash:competition_id"
+        """
+        # Get the variable-length components first.
+        commit_str = self.commit or ""
+        secure_hash_str = self.secure_hash or ""
+        competition_id_str = str(self.competition_id)
+
+        # Calculate the overhead for separators and other components.
+        # There are 3 separators.
+        overhead = 3 + len(commit_str.encode("utf-8")) + \
+                   len(secure_hash_str.encode("utf-8")) + \
+                   len(competition_id_str.encode("utf-8"))
+
+        # The budget for the full repo_id ("namespace/name") is what's left.
+        repo_id_budget = MAX_METADATA_BYTES - overhead
+        
+        full_repo_id = f"{self.namespace}/{self.name}"
+        
+        # Get a repo_id that is guaranteed to fit within the budget.
+        repo_id_str = self._shorten_repo_id(full_repo_id, repo_id_budget)
+
+        # Construct the final string.
+        final_string = f"{repo_id_str}:{commit_str}:{secure_hash_str}:{competition_id_str}"
+        
+        # Final safety check to ensure we are under the limit. This should always pass.
+        if len(final_string.encode("utf-8")) > MAX_METADATA_BYTES:
+             raise ValueError(f"CRITICAL: Compressed string exceeds {MAX_METADATA_BYTES} bytes even after shortening.")
+             
+        return final_string
 
     @classmethod
-    def from_compressed_str(
-        cls, cs: str, default_competition_id: int = 0
-    ) -> "ModelId":
+    def from_compressed_str(cls, cs: str, default_competition_id: int = 0) -> "ModelId":
         """Instantiate from a compressed string representation."""
         tokens = cs.split(":")
+        
+        if len(tokens) < 4:
+            raise ValueError(f"Invalid compressed string format: Expected at least 4 parts, got {len(tokens)} from '{cs}'")
 
-        # Backward‐compat: older format lacked explicit competition_id
-        if len(tokens) < 5:
-            competition_id = default_competition_id
-            secure_hash = tokens[3] if tokens[3] != "None" else None
-        else:
-            competition_id = int(tokens[4])
-            secure_hash = tokens[3] if tokens[3] != "None" else None
+        repo_id_str = tokens[0]
+        commit = tokens[1] or None
+        secure_hash = tokens[2] or None
+        competition_id = int(tokens[3]) if tokens[3] else default_competition_id
+
+        # Split the repo_id back into namespace and name.
+        if "/" not in repo_id_str:
+            raise ValueError(f"Invalid repo_id format in compressed string: '{repo_id_str}'")
+        namespace, name = repo_id_str.split("/", 1)
 
         return cls(
-            namespace=tokens[0],
-            name=tokens[1],
-            commit=tokens[2] if tokens[2] != "None" else None,
-            hash=None,
+            namespace=namespace,
+            name=name,
+            commit=commit,
+            hash=None,  # Hash is not stored in the compressed string.
             secure_hash=secure_hash,
             competition_id=competition_id,
         )
@@ -73,22 +123,15 @@ class ModelId:
 
 @dataclasses.dataclass
 class Model:
-    """Represents a pre‐trained foundation model."""
-
-    # Identifier for this model.
+    """Represents a pre-trained foundation model."""
     id: ModelId
-
-    # The raw model object (e.g. a torch.nn.Module or any other class).
     model: BaseTemporalModel
-
-    # Tokenizer is no longer managed by stores; always None.
 
 
 @dataclasses.dataclass
 class ModelMetadata:
     # Identifier for this trained model.
     id: ModelId
-
     # Block on which this model was uploaded on the chain.
     block: int
 
@@ -96,16 +139,12 @@ class ModelMetadata:
 @dataclasses.dataclass
 class EvalResult:
     """Records an evaluation result for a model."""
-
     # The block the model was evaluated at.
     block: int
-
     # The eval score of this model when it was evaluated.
     # May be math.inf if the model failed to evaluate.
     score: float
-
     # The block the winning model was submitted.
     winning_model_block: int
-
     # The score of the winning model when this model was evaluated.
     winning_model_score: float
