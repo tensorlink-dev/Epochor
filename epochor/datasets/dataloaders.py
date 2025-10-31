@@ -1,58 +1,9 @@
-import time
-from torch.utils.data import IterableDataset 
-from torch.utils.data import Dataset as Dataset
 from torch.utils.data import DataLoader
-from typing import Iterator, Optional, Any, Dict
+from torch.utils.data import Dataset as Dataset
+from typing import Any, Dict
 import torch
 from epochor.datasets.ids import DatasetId
 from epochor.generators.synthetic_v1 import SyntheticBenchmarkerV1
-
-# Attempt to import HuggingFace streaming IterableDataset
-try:
-    from datasets import IterableDataset as HfIterableDataset
-except ImportError:
-    HfIterableDataset = None
-
-
-class SyntheticTimeSeriesDataset(IterableDataset):
-    """
-    Wraps SyntheticBenchmarkerV1 so that each iteration yields one batch of synthetic data.
-    Each call to `bench.prepare_data(seed)` returns a dict containing:
-      - "inputs_padded": Tensor (n_series, max_input_len)
-      - "attention_mask": Tensor (n_series, max_input_len)
-      - "targets_padded": Tensor (n_series, max_target_len)
-      - "actual_target_lengths": List[int] of length n_series
-    """
-
-    def __init__(
-        self,
-        bench,
-        *,
-        start_seed: int = 0,
-        num_batches: int = None
-    ):
-        """
-        Args:
-            bench:        Instance of SyntheticBenchmarkerV1.
-            start_seed:   Integer seed for the first batch; subsequent batches use start_seed + batch_index.
-            num_batches:  If provided, stops after yielding `num_batches` batches. If None, yields indefinitely.
-        """
-        super().__init__()
-        self.bench = bench
-        self.start_seed = start_seed
-        self.num_batches = num_batches
-
-    def __iter__(self) -> Iterator[Dict[str, Any]]:
-        batch_idx = 0
-        while True:
-            if self.num_batches is not None and batch_idx >= self.num_batches:
-                break
-
-            seed = self.start_seed + batch_idx
-            batch_dict = self.bench.prepare_data(seed=seed)
-            yield batch_dict
-
-            batch_idx += 1
 
 
 class StaticSyntheticDataset(Dataset):
@@ -79,15 +30,6 @@ class StaticSyntheticDataset(Dataset):
     def _is_tensor_like(x):
         return isinstance(x, (int, float, bool)) or torch.is_tensor(x)
 
-
-class SyntheticIterableDataset(IterableDataset):
-    def __init__(self, data_dict):
-        self.data = data_dict
-        self.length = len(next(iter(data_dict.values())))
-
-    def __iter__(self):
-        for i in range(self.length):
-            yield {k: self.data[k][i] for k in self.data}
 
 class DatasetLoaderFactory:
     @staticmethod

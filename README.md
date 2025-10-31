@@ -47,7 +47,7 @@ This codebase builds upon the work of the [Pretrain Subnet](https://github.com/o
  Subtensor (on-chain weights & rewards)
         │
         ▼
- Rewards distributed (validation/rewards.py)
+ Rewards distributed via validator-managed scoring
 ```
 
 ---
@@ -63,7 +63,7 @@ Rewards are weighted so the **#1 ranked miner receives the majority of emissions
 The winner-makes-most mechanism makes Sybil attacks unprofitable. Running many mediocre nodes yields minimal returns — miners must focus resources into building genuinely competitive models.
 
 ### 💡 Innovation Over Imitation
-`assess_clones.py` enforces penalties on duplicate or plagiarized models. A challenger must demonstrate **clear improvement in the scoring metric** to overtake the leader, forcing true innovation.
+Validator-run safeguards discourage duplicate or plagiarized models. Challengers must demonstrate **clear improvement in the scoring metric** to overtake the leader, forcing true innovation.
 
 ### 🧠 Zero-Shot Generalization
 Validators draw from a **broad and rotating set of datasets** (synthetic + real). Miners never know which competition comes next, ensuring that rewarded models are **generalist** rather than overfit.
