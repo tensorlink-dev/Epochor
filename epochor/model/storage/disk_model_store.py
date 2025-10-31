@@ -4,7 +4,7 @@ import traceback
 from pathlib import Path
 from typing import Dict, Optional
 
-from temporal.utils.hf_accessors import save_hf, load_hf
+from epochor.model.serialization import save_hf, load_hf
 from epochor.utils import logging
 from epochor.model.model_data import Model, ModelId
 from epochor.model.model_constraints import ModelConstraints

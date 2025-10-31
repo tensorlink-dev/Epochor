@@ -314,11 +314,11 @@ class ModelManager:
 
                 # Decide if we should force a refresh of the model for this UID.
                 force_sync = False
-                model_metadata = self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
+                submission_snapshot = self.model_tracker.get_submission_for_miner_hotkey(hotkey)
 
-                if model_metadata:
+                if submission_snapshot:
                     # Is it already queued for eval for this competition?
-                    comp_id = model_metadata.id.competition_id
+                    comp_id = submission_snapshot.competition_id
                     is_queued = (
                         next_uid in self.state.get_pending_uids_to_eval(comp_id)
                         or next_uid in self.state.get_uids_to_eval(comp_id)
@@ -364,12 +364,12 @@ class ModelManager:
                     updated = False
 
                 if updated:
-                    # Newly updated model → schedule for evaluation on its competition.
-                    metadata = self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
-                    if metadata is not None:
-                        self.state.add_pending_uid_to_eval(metadata.id.competition_id, next_uid)
+                    # Newly updated submission → schedule for evaluation on its competition.
+                    snapshot = self.model_tracker.get_submission_for_miner_hotkey(hotkey)
+                    if snapshot is not None:
+                        self.state.add_pending_uid_to_eval(snapshot.competition_id, next_uid)
                         bt.logging.debug(
-                            f"[update_models] New model for UID={next_uid} (comp={metadata.id.competition_id}) queued for eval."
+                            f"[update_models] New submission for UID={next_uid} (comp={snapshot.competition_id}) queued for eval."
                         )
                         # Reset EMA for this UID so it fairly re-enters leaderboards.
                         try:
@@ -378,7 +378,7 @@ class ModelManager:
                             pass
                     else:
                         bt.logging.warning(
-                            f"[update_models] Updated model for UID {next_uid} but metadata missing for hotkey {hotkey}."
+                            f"[update_models] Updated submission for UID {next_uid} but snapshot missing for hotkey {hotkey}."
                         )
 
             except StopIteration:
@@ -469,15 +469,15 @@ class ModelManager:
             if not should_retry:
                 continue
 
-            meta = self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
-            if meta is None:
-                bt.logging.warning(f"[queue_top_models] No metadata after sync for UID {uid} ({hotkey}).")
+            snapshot = self.model_tracker.get_submission_for_miner_hotkey(hotkey)
+            if snapshot is None:
+                bt.logging.warning(f"[queue_top_models] No submission snapshot after sync for UID {uid} ({hotkey}).")
                 continue
 
             # Queue for evaluation on its competition (do not enforce pending/full cap here).
-            self.state.add_pending_uid_to_eval(meta.id.competition_id, uid)
+            self.state.add_pending_uid_to_eval(snapshot.competition_id, uid)
             bt.logging.trace(
-                f"[queue_top_models] Queued UID={uid} (comp={meta.id.competition_id}) due to top-miner status."
+                f"[queue_top_models] Queued UID={uid} (comp={snapshot.competition_id}) due to top-miner status."
             )
 
     def _wait_for_open_eval_slot(self) -> None:
@@ -515,10 +515,10 @@ class ModelManager:
             try:
                 bt.logging.trace("[clean_models] Starting cleanup of stale models.")
 
-                # Map of all hotkeys → model metadata.
-                hotkey_to_model_metadata = self.model_tracker.get_miner_hotkey_to_model_metadata_dict()
+                # Map of all hotkeys → submission snapshots.
+                hotkey_to_submission = self.model_tracker.get_miner_hotkey_to_submission_dict()
                 hotkey_to_model_id = {
-                    hk: md.id for hk, md in hotkey_to_model_metadata.items()
+                    hk: snapshot.model_id for hk, snapshot in hotkey_to_submission.items()
                 }
 
                 # Collect UIDs we must keep (pending or current across competitions).

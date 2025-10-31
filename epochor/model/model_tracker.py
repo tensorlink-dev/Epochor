@@ -1,59 +1,86 @@
-from typing import Dict, Optional, List
+from __future__ import annotations
+
 import pickle
 import threading
-import logging
+from typing import Dict, List, Optional
 
-from epochor.model.model_data import ModelMetadata, EvalResult
+from epochor.model.model_data import (
+    EvalResult,
+    MinerSubmissionSnapshot,
+    ModelMetadata,
+    TrainingResultRecord,
+)
+
 
 class ModelTracker:
-    """Tracks the current model metadata for each miner."""
+    """Tracks miner submissions, training outcomes, and evaluation history."""
 
-    def __init__(self):
-        self.miner_hotkey_to_model_metadata: Dict[str, ModelMetadata] = {}
+    def __init__(self) -> None:
+        self.miner_hotkey_to_submission: Dict[str, MinerSubmissionSnapshot] = {}
+        self.miner_hotkey_to_training_result: Dict[str, TrainingResultRecord] = {}
         self.miner_hotkey_to_eval_results: Dict[str, Dict[int, List[EvalResult]]] = {}
         self.lock = threading.RLock()
-        #self.hotkey_to_model_fingerprint : Dict[str, Dict] = {}
 
-    def on_hotkeys_updated(self, hotkeys: set[str]):
-        """Called when the hotkeys in the metagraph change."""
+    # ------------------------------------------------------------------
+    # Hotkey lifecycle
+    # ------------------------------------------------------------------
+    def on_hotkeys_updated(self, hotkeys: set[str]) -> None:
+        """Prune tracker entries for hotkeys that are no longer active."""
+
         with self.lock:
-            # Remove any hotkeys that are no longer in the metagraph.
-            for hotkey in list(self.miner_hotkey_to_model_metadata.keys()):
+            for hotkey in list(self.miner_hotkey_to_submission.keys()):
                 if hotkey not in hotkeys:
-                    del self.miner_hotkey_to_model_metadata[hotkey]
-            for hotkey in list(self.miner_hotkey_to_eval_results.keys()):
-                if hotkey not in hotkeys:
-                    del self.miner_hotkey_to_eval_results[hotkey]
+                    self.miner_hotkey_to_submission.pop(hotkey, None)
+                    self.miner_hotkey_to_training_result.pop(hotkey, None)
+                    self.miner_hotkey_to_eval_results.pop(hotkey, None)
 
-    def on_model_updated(
+    # ------------------------------------------------------------------
+    # Submission + training updates
+    # ------------------------------------------------------------------
+    def on_submission_updated(
         self,
         hotkey: str,
-        model_metadata: ModelMetadata,
+        submission: MinerSubmissionSnapshot,
     ) -> None:
-        """Notifies the tracker that a miner has had their associated model updated.
+        """Record the latest submission snapshot for a miner.
 
-        Args:
-            hotkey (str): The miner's hotkey.
-            model_metadata (ModelMetadata): The latest model metadata of the miner.
+        Any prior training/evaluation history is cleared if the submission changed.
         """
-        with self.lock:
-            prev_metadata = self.miner_hotkey_to_model_metadata.get(hotkey, None)
-            self.miner_hotkey_to_model_metadata[hotkey] = model_metadata
 
-            # If the model was updated, clear the evaluation results since they're no
-            # longer relevant.
-            if prev_metadata != model_metadata:
+        with self.lock:
+            previous = self.miner_hotkey_to_submission.get(hotkey)
+            self.miner_hotkey_to_submission[hotkey] = submission
+            if previous != submission:
+                self.miner_hotkey_to_training_result.pop(hotkey, None)
                 if hotkey in self.miner_hotkey_to_eval_results:
                     self.miner_hotkey_to_eval_results[hotkey].clear()
 
+    # Backward compatibility with legacy callers
+    def on_model_updated(self, hotkey: str, submission) -> None:  # pragma: no cover - compatibility shim
+        if isinstance(submission, MinerSubmissionSnapshot):
+            self.on_submission_updated(hotkey, submission)
+            return
+        if isinstance(submission, ModelMetadata):
+            legacy_snapshot = MinerSubmissionSnapshot(
+                model_id=submission.id,
+                competition_id=submission.id.competition_id,
+                block=submission.block,
+                snapshot_path="",
+            )
+            self.on_submission_updated(hotkey, legacy_snapshot)
+            return
+        raise TypeError("on_model_updated expects a MinerSubmissionSnapshot or ModelMetadata")
 
-    def on_model_downloaded(self, hotkey: str, metadata: ModelMetadata):
-        """Called when a new model is downloaded for a specific miner."""
+    def record_training_result(self, hotkey: str, result: TrainingResultRecord) -> None:
+        """Store the validator-recorded training summary for a miner."""
+
         with self.lock:
-            self.miner_hotkey_to_model_metadata[hotkey] = metadata
+            self.miner_hotkey_to_training_result[hotkey] = result
 
-    def on_model_evaluated(self, hotkey: str, competition_id: int, eval_result: EvalResult):
-        """Called when a model is evaluated."""
+    # ------------------------------------------------------------------
+    # Evaluation history
+    # ------------------------------------------------------------------
+    def on_model_evaluated(self, hotkey: str, competition_id: int, eval_result: EvalResult) -> None:
         with self.lock:
             if hotkey not in self.miner_hotkey_to_eval_results:
                 self.miner_hotkey_to_eval_results[hotkey] = {}
@@ -61,45 +88,80 @@ class ModelTracker:
                 self.miner_hotkey_to_eval_results[hotkey][competition_id] = []
             self.miner_hotkey_to_eval_results[hotkey][competition_id].append(eval_result)
 
-    def get_model_metadata_for_miner_hotkey(self, hotkey: str) -> Optional[ModelMetadata]:
-        """Returns the model metadata for a specific miner, or None if not found."""
+    # ------------------------------------------------------------------
+    # Accessors
+    # ------------------------------------------------------------------
+    def get_submission_for_miner_hotkey(self, hotkey: str) -> Optional[MinerSubmissionSnapshot]:
         with self.lock:
-            return self.miner_hotkey_to_model_metadata.get(hotkey)
+            return self.miner_hotkey_to_submission.get(hotkey)
+
+    def get_training_result_for_miner_hotkey(self, hotkey: str) -> Optional[TrainingResultRecord]:
+        with self.lock:
+            return self.miner_hotkey_to_training_result.get(hotkey)
+
+    def get_model_metadata_for_miner_hotkey(self, hotkey: str) -> Optional[ModelMetadata]:  # pragma: no cover - legacy
+        submission = self.get_submission_for_miner_hotkey(hotkey)
+        if submission is None:
+            return None
+        return ModelMetadata(id=submission.model_id, block=submission.block)
 
     def get_eval_results_for_miner_hotkey(self, hotkey: str, competition_id: int) -> List[EvalResult]:
-        """Returns the evaluation results for a specific miner and competition."""
         with self.lock:
             return self.miner_hotkey_to_eval_results.get(hotkey, {}).get(competition_id, [])
 
     def get_block_last_evaluated(self, hotkey: str) -> Optional[int]:
-        """Returns the block number of the last evaluation for a specific miner."""
         with self.lock:
-            if hotkey in self.miner_hotkey_to_eval_results and self.miner_hotkey_to_eval_results[hotkey]:
-                # Assuming the last result is the most recent.
-                # Find the competition with the most recent eval
-                last_eval_block = 0
-                for results in self.miner_hotkey_to_eval_results[hotkey].values():
-                    if results:
-                        last_eval_block = max(last_eval_block, results[-1].block)
-                return last_eval_block
-            return None
+            competitions = self.miner_hotkey_to_eval_results.get(hotkey)
+            if not competitions:
+                return None
+            last_block = 0
+            for results in competitions.values():
+                if results:
+                    last_block = max(last_block, results[-1].block)
+            return last_block or None
 
-    def get_miner_hotkey_to_model_metadata_dict(self) -> Dict[str, ModelMetadata]:
-        """Returns a copy of the mapping from hotkey to model metadata."""
+    def get_miner_hotkey_to_submission_dict(self) -> Dict[str, MinerSubmissionSnapshot]:
         with self.lock:
-            return self.miner_hotkey_to_model_metadata.copy()
-   
-    def save_state(self, filepath: str):
-        """Saves the current state of the model tracker to a file."""
+            return self.miner_hotkey_to_submission.copy()
+
+    def get_miner_hotkey_to_model_metadata_dict(self) -> Dict[str, ModelMetadata]:  # pragma: no cover - legacy
+        with self.lock:
+            return {
+                hotkey: ModelMetadata(id=sub.model_id, block=sub.block)
+                for hotkey, sub in self.miner_hotkey_to_submission.items()
+            }
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+    def save_state(self, filepath: str) -> None:
         with self.lock:
             with open(filepath, "wb") as f:
-                pickle.dump(self.miner_hotkey_to_model_metadata, f)
+                pickle.dump(self.miner_hotkey_to_submission, f)
+                pickle.dump(self.miner_hotkey_to_training_result, f)
                 pickle.dump(self.miner_hotkey_to_eval_results, f)
 
-    def load_state(self, filepath: str):
-        """Loads the state of the model tracker from a file."""
+    def load_state(self, filepath: str) -> None:
         with open(filepath, "rb") as f:
-            self.miner_hotkey_to_model_metadata = pickle.load(f)
-            self.miner_hotkey_to_eval_results = pickle.load(f)
-
-    # get fingerprint, append fingerprint
+            first = pickle.load(f)
+            try:
+                second = pickle.load(f)
+                third = pickle.load(f)
+            except EOFError:
+                legacy_metadata = first
+                legacy_eval_results = second if 'second' in locals() else {}
+                self.miner_hotkey_to_submission = {
+                    hotkey: MinerSubmissionSnapshot(
+                        model_id=meta.id,
+                        competition_id=meta.id.competition_id,
+                        block=meta.block,
+                        snapshot_path="",
+                    )
+                    for hotkey, meta in legacy_metadata.items()
+                }
+                self.miner_hotkey_to_training_result = {}
+                self.miner_hotkey_to_eval_results = legacy_eval_results
+            else:
+                self.miner_hotkey_to_submission = first
+                self.miner_hotkey_to_training_result = second
+                self.miner_hotkey_to_eval_results = third

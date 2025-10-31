@@ -86,7 +86,7 @@ async def main(config: bt.config):
     # This miner does not train, but instead serves a model that is uploaded externally.
     # It just needs to stay alive on the network.
     logging.info(
-        "This miner does not train. Use scripts/upload_model_miner.py to upload a model."
+        "This miner does not train locally. Provide a miner_submission module for validators to execute."
     )
 
     # Attach a dummy forward function to the axon.

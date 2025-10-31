@@ -14,7 +14,7 @@ from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.model_data import Model, ModelId
 from epochor.model.model_constraints import ModelConstraints
 from epochor.model.model_updater import MinerMisconfiguredError
-from temporal.utils.hf_accessors import save_hf, load_hf
+from epochor.model.serialization import save_hf, load_hf
 from epochor.utils.hashing import hash_directory
 from dotenv import load_dotenv
 load_dotenv()   # <-- populates os.environ from .env

@@ -6,7 +6,7 @@ from typing import List, Optional, Tuple, Union
 import logging
 from epochor.utils import competition_utils
 from epochor.model.model_constraints import Competition, ModelConstraints, MODEL_CONSTRAINTS_BY_COMPETITION_ID
-from epochor.model.model_data import Model, ModelId, ModelMetadata
+from epochor.model.model_data import Model, ModelId, ModelMetadata, MinerSubmissionSnapshot
 from epochor.model.model_tracker import ModelTracker
 from epochor.model.base_disk_model_store import LocalModelStore
 from epochor.model.base_hf_model_store import RemoteModelStore
@@ -68,10 +68,10 @@ class ModelUpdater:
         return True
 
     async def _get_metadata(self, uid: int, hotkey: str) -> Optional[ModelMetadata]:
-        # Tries to get the metadata from the tracker first, then from the store.
-        tracked_metadata = self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
-        if tracked_metadata:
-            return tracked_metadata
+        # Prefer the locally cached submission snapshot; fall back to the metadata store.
+        submission = self.model_tracker.get_submission_for_miner_hotkey(hotkey)
+        if submission is not None:
+            return ModelMetadata(id=submission.model_id, block=submission.block)
         return await self.metadata_store.retrieve_model_metadata(uid, hotkey)
 
     async def sync_model(
@@ -115,8 +115,8 @@ class ModelUpdater:
         #    return False
 
         # 4) Skip if metadata unchanged and not forced
-        tracked = self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
-        if not force and tracked == metadata:
+        tracked_snapshot = self.model_tracker.get_submission_for_miner_hotkey(hotkey)
+        if not force and tracked_snapshot is not None and tracked_snapshot.model_id == metadata.id and tracked_snapshot.block == metadata.block:
             return False
 
         # 5) Download model
@@ -127,7 +127,22 @@ class ModelUpdater:
             raise MinerMisconfiguredError(hotkey, f"Failed to download model: {e}") from e
 
         # 6) Record in tracker (even if validation fails)
-        self.model_tracker.on_model_updated(hotkey, metadata)
+        snapshot_path = None
+        if hasattr(self.local_store, "base_dir"):
+            from epochor.model.storage.disk import utils as disk_utils  # local import to avoid cycle
+
+            snapshot_path = disk_utils.get_local_model_snapshot_dir(self.local_store.base_dir, hotkey, model.id)
+        else:
+            snapshot_path = self.local_store.get_path(hotkey)
+
+        submission_snapshot = MinerSubmissionSnapshot(
+            model_id=model.id,
+            competition_id=metadata.id.competition_id,
+            block=metadata.block,
+            snapshot_path=snapshot_path,
+        )
+
+        self.model_tracker.on_submission_updated(hotkey, submission_snapshot)
         # fingerprint = get_arch_dict(model.model.config)
         # self.model_tracker.hotkey_to_model_fingerprint(fingerprint)
         # 7) Optional hash check
