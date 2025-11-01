@@ -35,7 +35,8 @@ class PerUIDEvalState:
 class EvaluationService:
     """
     Acts as the core evaluation engine. It takes a list of UIDs and prepared data,
-    retrieves the corresponding models, and executes the scoring function for each.
+    executes the validator-owned training loop for each miner submission, and
+    produces scoring artefacts for downstream weighting.
     """
     def __init__(self, state: ValidatorState, metagraph: "bt.metagraph", local_store: DiskModelStore, device: str, metagraph_lock: threading.RLock):
         """Initializes the EvaluationService."""
@@ -53,7 +54,7 @@ class EvaluationService:
         eval_tasks: list,
         seed: int,
     ) -> dict[int, PerUIDEvalState]:
-        """Evaluates a list of UIDs, returning their raw scores and performance details."""
+        """Train and evaluate each UID's submission, returning performance details."""
 
         uid_to_state: dict[int, PerUIDEvalState] = defaultdict(PerUIDEvalState)
         train_batches = self._flatten_samples(samples)

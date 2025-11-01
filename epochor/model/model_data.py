@@ -1,9 +1,10 @@
 import dataclasses
 import hashlib
-from typing import Optional, Any, Dict
+import math
+from typing import Any, Dict, Optional
 
 from epochor.model.base import BaseTemporalModel
-import math
+ 
 
 # The maximum bytes for metadata on the chain.
 MAX_METADATA_BYTES = 128

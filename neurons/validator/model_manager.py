@@ -2,8 +2,8 @@
 Model Manager
 =============
 
-Keeps the local model store in sync with miners’ on-chain metadata and queues
-models for evaluation. Also prunes stale local copies.
+Keeps the local submission cache in sync with miners’ on-chain metadata,
+queues submissions for validator-side training, and prunes stale artefacts.
 
 Key features:
 - Single persistent asyncio loop for all async work (no repeated event-loop creation).
