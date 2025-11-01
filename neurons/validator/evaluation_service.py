@@ -38,13 +38,23 @@ class EvaluationService:
     executes the validator-owned training loop for each miner submission, and
     produces scoring artefacts for downstream weighting.
     """
-    def __init__(self, state: ValidatorState, metagraph: "bt.metagraph", local_store: DiskModelStore, device: str, metagraph_lock: threading.RLock):
+
+    def __init__(
+        self,
+        state: ValidatorState,
+        metagraph: "bt.metagraph",
+        local_store: DiskModelStore,
+        device: str,
+        metagraph_lock: threading.RLock,
+        sandbox_config: typing.Optional[bt.Config] = None,
+    ):
         """Initializes the EvaluationService."""
         self.state = state
         self.metagraph = metagraph
         self.local_store = local_store
         self.device = device
         self.metagraph_lock = metagraph_lock
+        self.sandbox_config = sandbox_config
 
     def evaluate_uids(
         self,
