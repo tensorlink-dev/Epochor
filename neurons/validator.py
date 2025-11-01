@@ -121,8 +121,14 @@ class Validator:
             self.weights, self.metagraph_lock
         )
         self.competition_manager = CompetitionManager(self.state)
+        sandbox_config = getattr(self.config, "sandbox", None)
         self.evaluation_service = EvaluationService(
-            self.state, self.metagraph, self.local_store, self.config.device, self.metagraph_lock
+            self.state,
+            self.metagraph,
+            self.local_store,
+            self.config.device,
+            self.metagraph_lock,
+            sandbox_config=sandbox_config,
         )
         self.scoring_service = ScoringService(self.state, self.metagraph, self.config)
 

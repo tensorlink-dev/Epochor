@@ -67,6 +67,42 @@ def add_validator_args(parser):
         default=os.path.join(constants.ROOT_DIR, "model-store/"),
         help="Where to store downloaded models",
     )
+    parser.add_argument(
+        "--sandbox.enable",
+        dest="sandbox.enable",
+        action="store_true",
+        help="Run miner submissions inside an isolated sandbox container.",
+    )
+    parser.add_argument(
+        "--sandbox.image",
+        dest="sandbox.image",
+        type=str,
+        default="",
+        help=(
+            "Docker image to use for sandboxed execution. Leave empty to run submissions on the host."
+        ),
+    )
+    parser.add_argument(
+        "--sandbox.timeout_s",
+        dest="sandbox.timeout_s",
+        type=int,
+        default=3600,
+        help="Maximum wall-clock time (in seconds) allowed for a sandboxed evaluation run.",
+    )
+    parser.add_argument(
+        "--sandbox.gpu_mode",
+        dest="sandbox.gpu_mode",
+        type=str,
+        default="auto",
+        help="GPU isolation mode for the sandbox (e.g. 'auto', 'none', 'exclusive').",
+    )
+    parser.add_argument(
+        "--sandbox.extra_docker_args",
+        dest="sandbox.extra_docker_args",
+        type=str,
+        default="",
+        help="Additional docker CLI arguments to append when launching the sandbox container.",
+    )
 
 def validator_config():
     """Returns the config for the validator."""
