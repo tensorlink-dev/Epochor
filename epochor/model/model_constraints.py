@@ -1,15 +1,83 @@
-from pydantic import BaseModel, Field
-from typing import Type, Dict, List
-from dataclasses import dataclass, field
-from temporal.models.builder import build_time_series_transformer as model_cls
-from temporal.configs.transformer_model_config import TransformerTimeSeriesConfig as config_cls
-from temporal.models.base_model import  BaseTemporalModel as model_type
-from typing import Any, Sequence
+from __future__ import annotations
 
-from competitions import CompetitionId # Updated import to be from competitions package directly
-from enum import IntEnum # Keep IntEnum for other enums if they are still local
-from competitions.epsilon import EpsilonFunc, FixedEpsilon # Import EpsilonFunc and FixedEpsilon
-import dataclasses
+from dataclasses import asdict, dataclass, field
+from enum import IntEnum
+from typing import Any, Callable, Dict, List, Sequence, Type
+
+import torch
+from pydantic import BaseModel, Field
+from torch import nn
+
+from competitions import CompetitionId  # Updated import to be from competitions package directly
+from competitions.epsilon import EpsilonFunc, FixedEpsilon  # Import EpsilonFunc and FixedEpsilon
+from epochor.model.base import (
+    AutoregressiveGenerationMixin,
+    BaseTemporalModel,
+    TemporalModelOutput,
+)
+
+
+@dataclass
+class SimpleTimeSeriesConfig:
+    context_length: int = 24
+    prediction_length: int = 1
+    input_dim: int = 1
+    output_dim: int = 1
+    hidden_size: int = 16
+    num_layers: int = 1
+    dropout: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SimpleTimeSeriesConfig":
+        return cls(**data)
+
+
+class SimpleAutoregressiveModel(BaseTemporalModel, AutoregressiveGenerationMixin):
+    """Tiny GRU-based autoregressive model for smoke tests and defaults."""
+
+    def __init__(self, config: SimpleTimeSeriesConfig | None = None):
+        config = config or SimpleTimeSeriesConfig()
+        super().__init__(config=config)
+        input_dim = getattr(config, "input_dim", 1)
+        hidden_size = getattr(config, "hidden_size", 16)
+        output_dim = getattr(config, "output_dim", 1)
+
+        self.encoder = nn.GRU(input_dim, hidden_size, batch_first=True)
+        self.projection = nn.Linear(hidden_size, output_dim)
+
+    def forward(self, x: torch.Tensor, **_: Any) -> TemporalModelOutput:  # type: ignore[override]
+        if x.dim() == 2:
+            x = x.unsqueeze(-1)
+        outputs, hidden = self.encoder(x)
+        predictions = self.projection(outputs)
+        return self._to_output({"predictions": predictions, "state": hidden})
+
+    def init_generation_state(self, inputs: torch.Tensor, **_: Any) -> Dict[str, Any]:
+        if inputs.dim() == 2:
+            inputs = inputs.unsqueeze(-1)
+        _, hidden = self.encoder(inputs)
+        return {"hidden": hidden}
+
+    def generation_step(
+        self, step_input: torch.Tensor, state: Dict[str, Any], **_: Any
+    ) -> tuple[torch.Tensor, Dict[str, Any]]:
+        if step_input.dim() == 2:
+            step_input = step_input.unsqueeze(-1)
+        outputs, new_hidden = self.encoder(step_input, state.get("hidden"))
+        predictions = self.projection(outputs)
+        return predictions, {"hidden": new_hidden}
+
+    def select_next_token(self, step_outputs: torch.Tensor, **_: Any) -> torch.Tensor:
+        return step_outputs
+
+
+def build_default_autoregressive_model(
+    config: SimpleTimeSeriesConfig,
+) -> BaseTemporalModel:
+    return SimpleAutoregressiveModel(config=config)
 
 class ModelConstraints(BaseModel):
     """
@@ -23,10 +91,12 @@ class ModelConstraints(BaseModel):
         default=5_000_000_000,
         description="Maximum number of parameters in the model. Default is 1 million."
     )
-    # Placeholder for the model and config classes from the temporal package
-    model_cls: Type = Field(default=model_cls)
-    config_cls: Type = Field(default=config_cls)
-    model_type: Type=  Field(default=model_type)
+    # Placeholder for the default miner model and config
+    model_cls: Callable[[Any], BaseTemporalModel] = Field(
+        default=build_default_autoregressive_model
+    )
+    config_cls: Type = Field(default=SimpleTimeSeriesConfig)
+    model_type: Type[BaseTemporalModel] = Field(default=BaseTemporalModel)
     epsilon_func: Type[EpsilonFunc] = Field(default_factory=lambda: FixedEpsilon(epsilon=0.0))
 
 class EvalMethodId(IntEnum):
@@ -39,7 +109,7 @@ class NormalizationId(IntEnum):
     NONE = 0
 
 
-@dataclasses.dataclass
+@dataclass
 class EvalTask:
     """Represents a task to evaluate a model on.
 
@@ -62,12 +132,12 @@ class EvalTask:
 
     # Options
     normalization_id: NormalizationId = NormalizationId.NONE
-    normalization_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+    normalization_kwargs: dict[str, Any] = field(default_factory=dict)
 
     # Ensure correct type + default 0.5
-    quantiles: Sequence[float] = dataclasses.field(default_factory=lambda: [0.5])
+    quantiles: Sequence[float] = field(default_factory=lambda: [0.5])
 
-    dataset_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+    dataset_kwargs: dict[str, Any] = field(default_factory=dict)
     weight: float = 1.0
 
     def __post_init__(self):
@@ -129,7 +199,7 @@ class EvalTask:
                 pass
 
 
-@dataclasses.dataclass
+@dataclass
 class Competition:
     """Defines a competition."""
 

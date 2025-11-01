@@ -14,40 +14,39 @@ Our mission is to incentivize and democratize temporal intelligence. We are buil
 
 ## 📜 Overview
 
-Epochor is a Bittensor subnet that **incentivizes the creation of foundational time-series models**. Miners train models and publish them to **Hugging Face Hub**, while validators fetch these models, evaluate them on **synthetic and real-world datasets**, and score them with competition-specific metrics (currently **CRPS**).  
+Epochor is a Bittensor subnet that **incentivizes the creation of foundational time-series models**. Validators now **own the entire training loop**: they choose the datasets, number of steps, hardware, and evaluation routine. Miners provide lightweight Python submissions that implement a small contract (model construction, optimizer selection, and the per-batch training step). Validators load those submissions, train the models inside a sandboxed loop, and score the resulting checkpoints on synthetic and real-world datasets (currently with **CRPS**).
 
-Competitions are rotated dynamically, and **the top-performing miner in each competition earns the largest share of rewards**, while other miners still receive proportionally smaller allocations. This **winner-makes-most** structure creates strong incentives for innovation while maintaining fairness across participants.
+Competitions rotate dynamically, and **the top-performing miner in each competition earns the largest share of rewards**, while other miners still receive proportionally smaller allocations. This **winner-makes-most** structure creates strong incentives for innovation while maintaining fairness across participants.
 
-This codebase builds upon the work of the [Pretrain Subnet](https://github.com/opentensor/pretrain).
+The repository builds upon the work of the [Pretrain Subnet](https://github.com/opentensor/pretrain) while retooling the validator workflow around submission-driven training.
 
 ---
 
 ## Subnet Flow
 
 ```
- Miner (train + push to HF) 
+ Miner submission (miner_submission.py)
         │
         ▼
- HF Model Store (base_hf_model_store.py)
+ Remote submission store (e.g. private HF repo)
         │
         ▼
- Validator (validator.py)
+ Validator (neurons/validator.py)
         │
  ┌─────────────── Services ────────────────┐
- │ CompetitionManager → select dataset     │
- │ ModelManager → fetch model from HF      │
- │ EvaluationService → run forecasts       │
- │ ScoringService → compute metric (CRPS)  │
- │ State/EMA → smooth scores               │
- │ WeightSetter → submit set_weights       │
- │ Clone Assessment → detect duplicates    │
- └─────────────────────────────────────────┘
+ │ ModelManager      → sync miner submissions    │
+ │ Training Loop     → run validator-owned steps │
+ │ EvaluationService → score trained checkpoints │
+ │ ScoringService    → compute CRPS + weights    │
+ │ State/EMA         → smooth scores             │
+ │ WeightSetter      → submit set_weights        │
+ └───────────────────────────────────────────────┘
         │
         ▼
  Subtensor (on-chain weights & rewards)
         │
         ▼
- Rewards distributed (validation/rewards.py)
+ Rewards distributed via validator-managed scoring
 ```
 
 ---
@@ -63,13 +62,13 @@ Rewards are weighted so the **#1 ranked miner receives the majority of emissions
 The winner-makes-most mechanism makes Sybil attacks unprofitable. Running many mediocre nodes yields minimal returns — miners must focus resources into building genuinely competitive models.
 
 ### 💡 Innovation Over Imitation
-`assess_clones.py` enforces penalties on duplicate or plagiarized models. A challenger must demonstrate **clear improvement in the scoring metric** to overtake the leader, forcing true innovation.
+Validator-run safeguards discourage duplicate or plagiarized models. Challengers must demonstrate **clear improvement in the scoring metric** to overtake the leader, forcing true innovation.
 
 ### 🧠 Zero-Shot Generalization
 Validators draw from a **broad and rotating set of datasets** (synthetic + real). Miners never know which competition comes next, ensuring that rewarded models are **generalist** rather than overfit.
 
-### ⚙️ Standardized Architecture
-All models must be implemented with **[Temporal](https://github.com/your-repo/temporal)** for compatibility and fairness. This ensures seamless evaluation and reproducibility.
+### ⚙️ Standardized Interface
+Miners target a compact API: subclasses of `epochor.model.base.BaseTemporalModel` plus the `MinerSubmissionProtocol` hooks (`build_model`, `build_optimizer`, `train_step`). Validators run those hooks inside an audited training harness, guaranteeing apples-to-apples comparisons regardless of the underlying architecture.
 
 ---
 
@@ -91,19 +90,20 @@ All competitions use a **consistent scoring pipeline**, with the **current prima
 ```
 epochor/
  ├─ datasets/       # dataset loaders & IDs
- ├─ evaluation/     # eval tasks, scoring methods
- ├─ generators/     # synthetic time-series kernels
- ├─ model/          # model stores, tracker, updater
- ├─ validation/     # EMA tracker, rewards, clone detection
- ├─ utils/          # helper functions
+ ├─ evaluation/     # CRPS scoring pipeline
+ ├─ generators/     # synthetic time-series generators
+ ├─ model/          # submission tracker, stores, constraints
+ ├─ training/       # validator-run training harness & contract
+ ├─ validation/     # EMA tracker & stats helpers
+ ├─ utils/          # logging, hashing, misc helpers
 neurons/validator/
  ├─ competition_manager.py  # schedules datasets
- ├─ evaluation_service.py   # runs model inference
- ├─ model_manager.py        # handles HF model pulls
- ├─ scoring_service.py      # scoring logic (currently CRPS)
- ├─ state.py                # EMA + state tracking
- ├─ weight_setter.py        # submits weights
- └─ validator.py            # main validator loop
+ ├─ evaluation_service.py   # trains + evaluates submissions
+ ├─ model_manager.py        # syncs miner submissions
+ ├─ scoring_service.py      # turns metrics into weights
+ ├─ state.py                # persisted validator state
+ ├─ weight_setter.py        # submits weights on-chain
+ └─ validator.py            # orchestrates the validator
 ```
 
 ---
@@ -130,12 +130,16 @@ neurons/validator/
 4. **Run a neuron**
    - Validator:
      ```bash
-     python examples/run_validator.py        --wallet.name <validator_wallet>        --wallet.hotkey <validator_hotkey>        --subtensor.network <network_name>        --netuid <epochor_netuid>
+     python examples/run_validator.py \
+       --wallet.name <validator_wallet> \
+       --wallet.hotkey <validator_hotkey> \
+       --subtensor.network <network_name> \
+       --netuid <epochor_netuid>
      ```
    - Miner:
-     ```bash
-     python your_miner_script.py        --wallet.name <miner_wallet>        --wallet.hotkey <miner_hotkey>        --subtensor.network <network_name>        --netuid <epochor_netuid>
-     ```
+     1. Implement `miner_submission.py` exposing `get_submission()` with the `MinerSubmissionProtocol` hooks.
+     2. Package and upload the submission to your configured remote store (e.g. a private Hugging Face repo).
+     3. Run the lightweight heartbeat miner (see `neurons/miner.py`) to stay registered on the subnet.
 
 ---
 

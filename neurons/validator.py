@@ -1,11 +1,13 @@
 """
 Main validator script.
 
-This script acts as a high-level orchestrator, delegating tasks to specialized
-service classes under the `neurons.validator` sub-package. Its main responsibilities include:
+This orchestrator wires together the validator services that sync miner
+submissions, execute validator-owned training, score the resulting checkpoints,
+and submit incentives on-chain. Its core responsibilities include:
 - Initializing Bittensor objects (wallet, subtensor, metagraph).
 - Setting up and starting all background services (ModelManager, WeightSetter).
-- Running the main evaluation loop (`run_step`), which coordinates the services.
+- Running the main evaluation loop (`run_step`), which coordinates submission
+  training, evaluation, scoring, and weighting.
 """
 import os
 import time

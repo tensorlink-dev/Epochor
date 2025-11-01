@@ -29,7 +29,7 @@ from epochor.utils import logging
 import torch
 from competitions.epsilon import EpsilonFunc
 from epochor.model.model_data import Model
-from epochor.evaluation.eval_task import EvalTask
+from epochor.model.model_constraints import EvalTask
 from epochor.config import EPOCHOR_CONFIG
 from epochor.evaluation.evaluation import BaseEvaluator
 from epochor.validation.statistics import (

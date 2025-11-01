@@ -1,9 +1,11 @@
-
-import asyncio
+from dataclasses import dataclass
 from typing import Dict, Optional
 
+import os
+
 import torch
-from transformers import PretrainedConfig, PreTrainedModel
+
+from epochor.model.base import BaseTemporalModel
 
 from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.base_metadata_model_store import ModelMetadataStore
@@ -11,25 +13,27 @@ from epochor.model.model_constraints import ModelConstraints
 from epochor.model.model_data import Model, ModelId, ModelMetadata
 
 
-# Dummy model and config for testing
-class DummyConfig(PretrainedConfig):
-    model_type = "dummy"
+@dataclass
+class DummyConfig:
+    """Lightweight config object used for dummy models."""
 
-    def __init__(self, hidden_size=1, input_dim=1, **kwargs):
-        super().__init__(**kwargs)
-        self.hidden_size = hidden_size
-        self.input_dim = input_dim
+    input_dim: int = 1
 
 
-class DummyModel(PreTrainedModel):
+class DummyModel(BaseTemporalModel):
     config_class = DummyConfig
 
-    def __init__(self, config):
+    def __init__(self, config: Optional[DummyConfig] = None):
+        config = config or DummyConfig()
         super().__init__(config)
-        self.linear = torch.nn.Linear(config.hidden_size, 1)
+        input_dim = getattr(config, "input_dim", 1)
+        self.linear = torch.nn.Linear(input_dim, 1)
 
     def forward(self, x):
-        return self.linear(x)
+        if x.dim() == 2:
+            x = x.unsqueeze(-1)
+        predictions = self.linear(x)
+        return self._to_output({"predictions": predictions})
 
 
 class FakeRemoteModelStore(RemoteModelStore):
@@ -48,12 +52,16 @@ class FakeRemoteModelStore(RemoteModelStore):
 
         model_key = f"{model_id.namespace}:{model_id.name}:{model_id.commit}"
         if model_key in self.models:
-            return self.models[model_key]
+            model = self.models[model_key]
+            if model.source_path is None:
+                os.makedirs(local_path, exist_ok=True)
+                model.source_path = local_path
+            return model
 
-        # If not found, create a dummy model to return
         config = DummyConfig()
         model = DummyModel(config)
-        return Model(id=model_id, model=model)
+        os.makedirs(local_path, exist_ok=True)
+        return Model(id=model_id, model=model, source_path=local_path)
 
 
 class FakeModelMetadataStore(ModelMetadataStore):

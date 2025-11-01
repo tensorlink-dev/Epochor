@@ -1,8 +1,10 @@
 import dataclasses
 import hashlib
-from typing import Optional, Any
-from temporal.models.base_model import BaseTemporalModel
 import math
+from typing import Any, Dict, Optional
+
+from epochor.model.base import BaseTemporalModel
+ 
 
 # The maximum bytes for metadata on the chain.
 MAX_METADATA_BYTES = 128
@@ -123,17 +125,46 @@ class ModelId:
 
 @dataclasses.dataclass
 class Model:
-    """Represents a pre-trained foundation model."""
+    """Represents a pre-trained foundation model and its accompanying artefacts."""
+
     id: ModelId
     model: BaseTemporalModel
+    # Optional path to the locally cached submission directory (e.g. miner_submission.py, README, etc.).
+    source_path: Optional[str] = None
 
 
 @dataclasses.dataclass
 class ModelMetadata:
-    # Identifier for this trained model.
+    """Legacy chain metadata describing a miner submission."""
+
     id: ModelId
-    # Block on which this model was uploaded on the chain.
     block: int
+
+
+@dataclasses.dataclass(frozen=True)
+class MinerSubmissionSnapshot:
+    """Represents the validator-controlled view of a miner submission."""
+
+    # Identifier describing the submission artefacts (historically derived from HF metadata).
+    model_id: ModelId
+    # Competition that the submission targets.
+    competition_id: int
+    # Block at which the submission snapshot was observed.
+    block: int
+    # Absolute path to the locally cached miner submission directory.
+    snapshot_path: str
+
+
+@dataclasses.dataclass
+class TrainingResultRecord:
+    """Captures the outcome of a validator-run training session for a miner."""
+
+    competition_id: int
+    block: int
+    train_metrics: Dict[str, Any]
+    val_metrics: Dict[str, Any]
+    num_steps: int
+    device: str
 
 
 @dataclasses.dataclass

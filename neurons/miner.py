@@ -83,18 +83,20 @@ async def main(config: bt.config):
     metagraph = subtensor.metagraph(config.netuid)
     axon = bt.axon(wallet=wallet, config=config)
 
-    # This miner does not train, but instead serves a model that is uploaded externally.
-    # It just needs to stay alive on the network.
+    # This miner does not train locally. Validators will execute the submitted
+    # miner_submission module under their own training loop. The axon only needs
+    # to stay responsive so the hotkey remains registered on-chain.
     logging.info(
-        "This miner does not train. Use scripts/upload_model_miner.py to upload a model."
+        "This miner does not train locally. Provide a miner_submission module for validators to execute."
     )
 
     # Attach a dummy forward function to the axon.
     # This is necessary to keep the axon alive.
     def dummy_forward(synapse: bt.Synapse) -> bt.Synapse:
         # This function does not need to do anything.
-        # Validators will fetch the model directly from Hugging Face.
-        pass
+        # Validators do not query the axon for parameters; they only use the
+        # miner_submission artefacts they download from the remote store.
+        return synapse
 
     axon.attach(forward_fn=dummy_forward)
 

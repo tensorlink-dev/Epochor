@@ -1,6 +1,6 @@
 import numpy as np
 from properscoring import crps_ensemble
-from epochor.evaluation.method import EvalMethodId
+from epochor.model.model_constraints import EvalMethodId
 from epochor.utils import logging
 
 

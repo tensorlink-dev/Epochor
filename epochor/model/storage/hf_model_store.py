@@ -1,6 +1,7 @@
 # epochor/storage/hf_model_store.py
 
 import os
+import shutil
 import tempfile
 import logging
 from dataclasses import replace
@@ -14,7 +15,7 @@ from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.model_data import Model, ModelId
 from epochor.model.model_constraints import ModelConstraints
 from epochor.model.model_updater import MinerMisconfiguredError
-from temporal.utils.hf_accessors import save_hf, load_hf
+from epochor.model.serialization import save_hf, load_hf
 from epochor.utils.hashing import hash_directory
 from dotenv import load_dotenv
 load_dotenv()   # <-- populates os.environ from .env
@@ -175,10 +176,23 @@ class HuggingFaceModelStore(RemoteModelStore):
                         f"Hash mismatch for {repo_id}. Expected {model_id.hash}, but downloaded content has hash {computed_hash}."
                     )
 
-            # 4. If the hash is valid, load the model from the verified local path.
+            # 4. Persist the downloaded snapshot (model weights + miner submission code) locally.
+            try:
+                parent_dir = os.path.dirname(local_path) or local_path
+                os.makedirs(parent_dir, exist_ok=True)
+                # Clear any stale snapshot before copying the new download over.
+                shutil.rmtree(local_path, ignore_errors=True)
+                shutil.copytree(download_path, local_path, dirs_exist_ok=True)
+            except Exception as e:
+                raise MinerMisconfiguredError(
+                    hotkey=model_id.name,
+                    message=f"Failed to persist submission snapshot for '{repo_id}': {e}",
+                ) from e
+
+            # 5. If the hash is valid, load the model from the persisted snapshot path.
             try:
                 pt_model = load_hf(
-                    model_name_or_path=download_path,  # Load from the verified temporary path.
+                    model_name_or_path=local_path,
                     model_cls=model_constraints.model_cls,
                     config_cls=model_constraints.config_cls,
                     safe=True,
@@ -190,5 +204,5 @@ class HuggingFaceModelStore(RemoteModelStore):
                     message=f"Failed to load verified model '{repo_id}': {e}",
                 ) from e
 
-        # 5. Return the loaded model with its original, verified ModelId.
-        return Model(id=model_id, model=pt_model)
+        # 6. Return the loaded model with its original, verified ModelId and snapshot path.
+        return Model(id=model_id, model=pt_model, source_path=local_path)
