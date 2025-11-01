@@ -48,6 +48,10 @@ class SandboxMissingOutputError(SandboxError):
     """Raised when the sandbox execution completes without producing output."""
 
 
+class SandboxInvalidOutputError(SandboxError):
+    """Raised when the sandbox output cannot be parsed safely."""
+
+
 @dataclass
 class SandboxResult:
     """Outcome of a sandbox run."""
@@ -302,23 +306,27 @@ def _normalize_output(stream: Optional[str]) -> list[str]:
 
 
 def _load_summary(path: Path) -> Mapping[str, Any]:
-    if path.suffix == ".pt":
-        return torch.load(path)
-    if path.suffix == ".json":
-        with path.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
-    # Fallback: attempt JSON first, otherwise torch.load
     try:
         with path.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return torch.load(path)
+            summary = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise SandboxInvalidOutputError(
+            f"Sandbox output at {path} is not valid JSON"
+        ) from exc
+
+    if not isinstance(summary, Mapping):
+        raise SandboxInvalidOutputError(
+            "Sandbox output must be a JSON object mapping metric names to values"
+        )
+
+    return summary
 
 
 __all__ = [
     "SandboxError",
     "SandboxExecutionError",
     "SandboxMissingOutputError",
+    "SandboxInvalidOutputError",
     "SandboxResult",
     "SandboxRuntimeNotFound",
     "SandboxTimeoutError",

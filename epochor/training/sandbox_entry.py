@@ -138,11 +138,8 @@ def _write_summary(path: Path, summary: TrainingSummary) -> None:
         "num_steps": summary.num_steps,
         "device": summary.device,
     }
-    if path.suffix == ".pt":
-        torch.save(payload, path)
-    else:
-        with path.open("w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
+    with path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
 
 
 def _normalize_values(obj: Any) -> Any:
