@@ -119,27 +119,28 @@ class ModelUpdater:
         if not force and tracked_snapshot is not None and tracked_snapshot.model_id == metadata.id and tracked_snapshot.block == metadata.block:
             return False
 
-        # 5) Download model
-        local_path = self.local_store.get_path(hotkey)
-        try:
-            model: Model = await self.remote_store.download_model(metadata.id, local_path, comp_now.constraints)
-        except ValueError as e:
-            raise MinerMisconfiguredError(hotkey, f"Failed to download model: {e}") from e
-
-        # 6) Record in tracker (even if validation fails)
-        snapshot_path = None
+        # 5) Resolve snapshot path and download model + submission artefacts.
         if hasattr(self.local_store, "base_dir"):
             from epochor.model.storage.disk import utils as disk_utils  # local import to avoid cycle
 
-            snapshot_path = disk_utils.get_local_model_snapshot_dir(self.local_store.base_dir, hotkey, model.id)
+            snapshot_path = disk_utils.get_local_model_snapshot_dir(self.local_store.base_dir, hotkey, metadata.id)
         else:
-            snapshot_path = self.local_store.get_path(hotkey)
+            base_local_path = self.local_store.get_path(hotkey)
+            snapshot_path = os.path.join(base_local_path, metadata.id.commit or "latest")
+
+        try:
+            model: Model = await self.remote_store.download_model(metadata.id, snapshot_path, comp_now.constraints)
+        except ValueError as e:
+            raise MinerMisconfiguredError(hotkey, f"Failed to download model: {e}") from e
+
+        if model.source_path is None:
+            model.source_path = snapshot_path
 
         submission_snapshot = MinerSubmissionSnapshot(
             model_id=model.id,
             competition_id=metadata.id.competition_id,
             block=metadata.block,
-            snapshot_path=snapshot_path,
+            snapshot_path=model.source_path,
         )
 
         self.model_tracker.on_submission_updated(hotkey, submission_snapshot)

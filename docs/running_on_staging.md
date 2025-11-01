@@ -307,6 +307,22 @@ Run the subnet validator:
 python neurons/validator.py --netuid 1 --subtensor.chain_endpoint ws://127.0.0.1:9946 --wallet.name validator --wallet.hotkey default --logging.debug
 ```
 
+When testing locally you can also turn on sandboxing with a locally built image:
+
+```bash
+python neurons/validator.py \
+  --netuid 1 \
+  --subtensor.chain_endpoint ws://127.0.0.1:9946 \
+  --wallet.name validator \
+  --wallet.hotkey default \
+  --logging.debug \
+  --sandbox.enable \
+  --sandbox.image epochor-validator-sandbox:dev \
+  --sandbox.timeout_s 900
+```
+
+Ensure the image exists on the machine before launching the validator (e.g. `docker build -t epochor-validator-sandbox:dev .`).
+
 ## 14. Set weights for your subnet
 
 Register a validator on the root subnet and boost to set weights for your subnet. This is a necessary step to ensure that the subnet is able to receive emmissions.

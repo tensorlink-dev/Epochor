@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+import os
+
 import torch
 
 from epochor.model.base import BaseTemporalModel
@@ -50,11 +52,16 @@ class FakeRemoteModelStore(RemoteModelStore):
 
         model_key = f"{model_id.namespace}:{model_id.name}:{model_id.commit}"
         if model_key in self.models:
-            return self.models[model_key]
+            model = self.models[model_key]
+            if model.source_path is None:
+                os.makedirs(local_path, exist_ok=True)
+                model.source_path = local_path
+            return model
 
         config = DummyConfig()
         model = DummyModel(config)
-        return Model(id=model_id, model=model)
+        os.makedirs(local_path, exist_ok=True)
+        return Model(id=model_id, model=model, source_path=local_path)
 
 
 class FakeModelMetadataStore(ModelMetadataStore):

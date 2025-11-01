@@ -141,6 +141,35 @@ neurons/validator/
      2. Package and upload the submission to your configured remote store (e.g. a private Hugging Face repo).
      3. Run the lightweight heartbeat miner (see `neurons/miner.py`) to stay registered on the subnet.
 
+### 🧪 Sandbox Configuration
+
+Validators can optionally execute miner submissions inside an isolated Docker sandbox. This allows operators to pin the exact
+runtime, gate GPU exposure, and enforce strict execution limits.
+
+- `--sandbox.enable` – Toggle sandboxing on. When omitted, submissions run directly on the host.
+- `--sandbox.image` – Fully-qualified Docker image (e.g. `ghcr.io/<org>/epochor-sandbox:latest`) that contains all Python
+  dependencies required by miner submissions. If left empty the validator falls back to host execution.
+- `--sandbox.timeout_s` – Maximum wall-clock time allotted to a single sandboxed evaluation before it is terminated.
+- `--sandbox.gpu_mode` – Controls how GPUs are exposed to the container (`auto`, `none`, `exclusive`, etc.).
+- `--sandbox.extra_docker_args` – Additional CLI flags appended to the `docker run` command (e.g. mounts or environment vars).
+
+Example Dockerfile skeleton that matches the validator environment:
+
+```dockerfile
+FROM nvidia/cuda:12.2.0-base-ubuntu22.04
+WORKDIR /sandbox
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+# Add any extra tooling or validation datasets your deployment needs here.
+```
+
+Build and push the image, then launch the validator with sandboxing enabled:
+
+```bash
+docker build -t ghcr.io/<org>/epochor-sandbox:latest .
+python neurons/validator.py --sandbox.enable --sandbox.image ghcr.io/<org>/epochor-sandbox:latest
+```
+
 ---
 
 ## 🛡️ Safety and Best Practices
