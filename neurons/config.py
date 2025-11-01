@@ -67,6 +67,36 @@ def add_validator_args(parser):
         default=os.path.join(constants.ROOT_DIR, "model-store/"),
         help="Where to store downloaded models",
     )
+    parser.add_argument(
+        "--sandbox_image",
+        type=str,
+        default="epochor-validator-sandbox:latest",
+        help="Container image to use when executing submissions inside the sandbox.",
+    )
+    parser.add_argument(
+        "--sandbox_timeout",
+        type=int,
+        default=900,
+        help="Maximum number of seconds a sandboxed run is allowed to execute.",
+    )
+    parser.add_argument(
+        "--sandbox_memory",
+        type=int,
+        default=0,
+        help="Optional memory limit (in bytes) for sandboxed execution; 0 disables the cap.",
+    )
+    parser.add_argument(
+        "--sandbox_cpus",
+        type=float,
+        default=0.0,
+        help="Optional CPU limit (in cores) for sandboxed execution; 0 disables the cap.",
+    )
+    parser.add_argument(
+        "--sandbox_gpus",
+        type=float,
+        default=0.0,
+        help="Optional GPU limit for sandboxed execution; 0 disables the cap.",
+    )
 
 def validator_config():
     """Returns the config for the validator."""

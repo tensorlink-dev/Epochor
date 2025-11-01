@@ -48,6 +48,7 @@ from neurons.validator import (
     EvaluationService,
     ScoringService,
     PerUIDEvalState,
+    SandboxRuntimeConfig,
 )
 
 
@@ -121,8 +122,25 @@ class Validator:
             self.weights, self.metagraph_lock
         )
         self.competition_manager = CompetitionManager(self.state)
+        sandbox_image = str(getattr(self.config, "sandbox_image", ""))
+        sandbox_timeout = int(getattr(self.config, "sandbox_timeout", 0))
+        sandbox_memory = int(getattr(self.config, "sandbox_memory", 0))
+        sandbox_cpus = float(getattr(self.config, "sandbox_cpus", 0.0))
+        sandbox_gpus = float(getattr(self.config, "sandbox_gpus", 0.0))
+        sandbox_runtime = SandboxRuntimeConfig(
+            image=sandbox_image,
+            timeout_seconds=max(sandbox_timeout, 0),
+            max_memory_bytes=sandbox_memory if sandbox_memory > 0 else None,
+            max_cpus=sandbox_cpus if sandbox_cpus > 0.0 else None,
+            max_gpus=sandbox_gpus if sandbox_gpus > 0.0 else None,
+        )
         self.evaluation_service = EvaluationService(
-            self.state, self.metagraph, self.local_store, self.config.device, self.metagraph_lock
+            self.state,
+            self.metagraph,
+            self.local_store,
+            self.config.device,
+            self.metagraph_lock,
+            sandbox_runtime=sandbox_runtime,
         )
         self.scoring_service = ScoringService(self.state, self.metagraph, self.config)
 
