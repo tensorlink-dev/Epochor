@@ -68,40 +68,34 @@ def add_validator_args(parser):
         help="Where to store downloaded models",
     )
     parser.add_argument(
-        "--sandbox.enable",
-        dest="sandbox.enable",
-        action="store_true",
-        help="Run miner submissions inside an isolated sandbox container.",
-    )
-    parser.add_argument(
-        "--sandbox.image",
-        dest="sandbox.image",
+        "--sandbox_image",
         type=str,
-        default="",
-        help=(
-            "Docker image to use for sandboxed execution. Leave empty to run submissions on the host."
-        ),
+        default="epochor-validator-sandbox:latest",
+        help="Container image to use when executing submissions inside the sandbox.",
     )
     parser.add_argument(
-        "--sandbox.timeout_s",
-        dest="sandbox.timeout_s",
+        "--sandbox_timeout",
         type=int,
-        default=3600,
-        help="Maximum wall-clock time (in seconds) allowed for a sandboxed evaluation run.",
+        default=900,
+        help="Maximum number of seconds a sandboxed run is allowed to execute.",
     )
     parser.add_argument(
-        "--sandbox.gpu_mode",
-        dest="sandbox.gpu_mode",
-        type=str,
-        default="auto",
-        help="GPU isolation mode for the sandbox (e.g. 'auto', 'none', 'exclusive').",
+        "--sandbox_memory",
+        type=int,
+        default=0,
+        help="Optional memory limit (in bytes) for sandboxed execution; 0 disables the cap.",
     )
     parser.add_argument(
-        "--sandbox.extra_docker_args",
-        dest="sandbox.extra_docker_args",
-        type=str,
-        default="",
-        help="Additional docker CLI arguments to append when launching the sandbox container.",
+        "--sandbox_cpus",
+        type=float,
+        default=0.0,
+        help="Optional CPU limit (in cores) for sandboxed execution; 0 disables the cap.",
+    )
+    parser.add_argument(
+        "--sandbox_gpus",
+        type=float,
+        default=0.0,
+        help="Optional GPU limit for sandboxed execution; 0 disables the cap.",
     )
 
 def validator_config():
