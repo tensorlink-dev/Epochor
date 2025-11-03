@@ -217,6 +217,22 @@ Run the subnet validator:
 python neurons/validator.py --netuid 1  --wallet.name validator --wallet.hotkey default --logging.debug
 ```
 
+To execute miner submissions inside a Docker sandbox, append the sandbox flags:
+
+```bash
+python neurons/validator.py \
+  --netuid 1 \
+  --wallet.name validator \
+  --wallet.hotkey default \
+  --logging.debug \
+  --sandbox.enable \
+  --sandbox.image ghcr.io/<org>/epochor-sandbox:latest \
+  --sandbox.timeout_s 3600
+```
+
+The image should contain all Python dependencies required by miner code. Operators can build their own from a CUDA-enabled base
+image and push it to a registry that the validator host can access.
+
 You will see the below terminal output:
 
 ```bash

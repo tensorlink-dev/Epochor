@@ -14,6 +14,7 @@ from .model_manager import ModelManager
 from .weight_setter import WeightSetter
 from .competition_manager import CompetitionManager
 from .evaluation_service import EvaluationService, PerUIDEvalState
+from .sandbox import SandboxRuntimeConfig
 from .scoring_service import ScoringService
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "EvaluationService",
     "ScoringService",
     "PerUIDEvalState",
+    "SandboxRuntimeConfig",
 ]

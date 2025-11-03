@@ -216,6 +216,23 @@ Next, run the subnet validator:
 python neurons/validator.py --netuid 1 --subtensor.network test --wallet.name validator --wallet.hotkey default --logging.debug
 ```
 
+You can enable sandboxed evaluation during testing as well:
+
+```bash
+python neurons/validator.py \
+  --netuid 1 \
+  --subtensor.network test \
+  --wallet.name validator \
+  --wallet.hotkey default \
+  --logging.debug \
+  --sandbox.enable \
+  --sandbox.image localhost:5000/epochor-sandbox:test \
+  --sandbox.timeout_s 1200
+```
+
+Push the sandbox image to a registry accessible from your staging or testnet hosts, or load it locally before launching the
+validator process.
+
 You will see the below terminal output:
 
 ```bash
