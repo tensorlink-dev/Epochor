@@ -170,17 +170,18 @@ def _materialize_artifacts(
     config: Mapping[str, Any],
 ) -> None:
     root.mkdir(parents=True, exist_ok=True)
-    checkpoint_dir = root / "checkpoint"
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
     model = summary.model
     model.eval()
     model.to("cpu")
-    save_as_safetensors(model, checkpoint_dir / "model.safetensors")
 
+    weights_path = root / "model.safetensors"
+    save_as_safetensors(model, weights_path)
+
+    config_path: Optional[Path] = None
     model_config = _extract_model_config(getattr(model, "config", None))
     if model_config is not None:
-        with (checkpoint_dir / "config.json").open("w", encoding="utf-8") as fh:
+        config_path = root / "config.json"
+        with config_path.open("w", encoding="utf-8") as fh:
             json.dump(model_config, fh, indent=2)
 
     metrics_path = root / "metrics.json"
@@ -194,13 +195,10 @@ def _materialize_artifacts(
         json.dump(metrics_payload, fh, indent=2)
 
     manifest = {
-        "checkpoint": {
-            "path": "checkpoint",
-            "weights": "checkpoint/model.safetensors",
-            "config": "checkpoint/config.json" if model_config is not None else None,
-        },
+        "weights": "model.safetensors",
+        "config": "config.json" if config_path is not None else None,
         "metrics": "metrics.json",
-        "config": config,
+        "training_config": config,
     }
     with (root / "manifest.json").open("w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2)
