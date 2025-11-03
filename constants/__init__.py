@@ -13,21 +13,9 @@ SYNC_BLOCK_CADENCE = 150
 # The minimum stake required to be sync'd with the network.
 MIN_SYNC_STAKE = 10_000
 
-# The number of models to keep in the cache.
-MAX_MODELS_TO_CACHE = 10
-
-# URL of the weights repo.
-WEIGHTS_REPO_URL = "https://huggingface.co/tensor-link/model_weights"
-
-# Filename for the weights.
-WEIGHTS_FILENAME = "distilbert-base-uncased.pt"
-
 temperature = 0.1
 # The number of neurons in the subnet.
 SUBNET_NEURONS = 256
-
-# The number of runs in a pass on the network.
-PASS_THROUGH_RUNS = 2
 
 # The batch size for processing data.
 BATCH_SIZE = 32

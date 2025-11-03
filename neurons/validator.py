@@ -104,6 +104,8 @@ class Validator:
         """Initializes and wires up all the service classes."""
         metadata_store = ChainModelMetadataStore(self.subtensor, self.config.netuid, self.wallet)
         remote_store = HuggingFaceModelStore()
+        self.metadata_store = metadata_store
+        self.remote_store = remote_store
         model_updater = ModelUpdater(metadata_store, remote_store, self.local_store, self.state.model_tracker)
 
         self.model_manager = ModelManager(
@@ -122,7 +124,13 @@ class Validator:
         )
         self.competition_manager = CompetitionManager(self.state)
         self.evaluation_service = EvaluationService(
-            self.state, self.metagraph, self.local_store, self.config.device, self.metagraph_lock
+            self.state,
+            self.metagraph,
+            self.local_store,
+            remote_store,
+            metadata_store,
+            self.config.device,
+            self.metagraph_lock,
         )
         self.scoring_service = ScoringService(self.state, self.metagraph, self.config)
 
@@ -160,7 +168,9 @@ class Validator:
 
         # Evaluate models
         logging.info(f"Evaluating {len(uids_to_eval)} UIDs for competition: {competition.id}")
-        uid_to_state = self.evaluation_service.evaluate_uids(uids_to_eval, competition, samples, eval_tasks, seed)
+        uid_to_state = await self.evaluation_service.evaluate_uids(
+            uids_to_eval, competition, samples, eval_tasks, seed
+        )
 
         # Score and update weights
         scoring_metrics, models_to_keep = self.scoring_service.process_scores_and_update_weights(

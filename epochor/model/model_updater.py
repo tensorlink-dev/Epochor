@@ -1,17 +1,15 @@
-# epochor/validator/model_updater.py
-
 import os
-from typing import List, Optional, Tuple, Union
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 import logging
 from epochor.utils import competition_utils
-from epochor.model.model_constraints import Competition, ModelConstraints, MODEL_CONSTRAINTS_BY_COMPETITION_ID
-from epochor.model.model_data import Model, ModelId, ModelMetadata, MinerSubmissionSnapshot
+from epochor.model.model_constraints import Competition
+from epochor.model.model_data import Model, ModelMetadata, MinerSubmissionSnapshot
 from epochor.model.model_tracker import ModelTracker
 from epochor.model.base_disk_model_store import LocalModelStore
 from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.base_metadata_model_store import ModelMetadataStore
-from epochor.utils.hashing import get_hash_of_two_strings
 
 
 class MinerMisconfiguredError(Exception):
@@ -38,32 +36,15 @@ class ModelUpdater:
         self.model_tracker = model_tracker
 
     @staticmethod
-    def verify_model_satisfies_constraints(
-        model: Model, constraints: ModelConstraints
-    ) -> bool:
-        if not constraints:
-            logging.debug(f"No competition constraints for {model.id.competition_id}")
+    def verify_submission_snapshot(snapshot_path: str) -> bool:
+        if not snapshot_path:
+            logging.debug("Missing snapshot path for miner submission")
             return False
 
-        # 1) Parameter count
-        total_params = sum(p.numel() for p in model.model.parameters())
-        if not (total_params <= constraints.max_model_parameters):
-            logging.debug(f"{model.id.name} parameter count {total_params} outside of [{constraints.max_model_parameters}]")
+        expected_file = Path(snapshot_path) / "miner_submission.py"
+        if not expected_file.is_file():
+            logging.debug("miner_submission.py not found in submission bundle")
             return False
-
-        if not isinstance(model.model,constraints.model_type):
-            logging.debug(f"{type(model.model)} not in allowed model classes")
-            return False
-
-        # 3) Optional norm checks
-        #  norm_cfg = constraints.norm_validation
-        # if norm_cfg is not None:
-        #    return ModelUpdater._validate_layer_norms(
-        #        model.pt_model,
-        #         eps_soft=norm_cfg.eps_soft,
-        #         soft_pct=norm_cfg.soft_pct,
-        #        eps_hard=norm_cfg.eps_hard
-        #     )
 
         return True
 
@@ -136,6 +117,12 @@ class ModelUpdater:
         if model.source_path is None:
             model.source_path = snapshot_path
 
+        if not ModelUpdater.verify_submission_snapshot(model.source_path):
+            raise MinerMisconfiguredError(
+                hotkey,
+                "Downloaded submission bundle is missing miner_submission.py",
+            )
+
         submission_snapshot = MinerSubmissionSnapshot(
             model_id=model.id,
             competition_id=metadata.id.competition_id,
@@ -144,27 +131,6 @@ class ModelUpdater:
         )
 
         self.model_tracker.on_submission_updated(hotkey, submission_snapshot)
-        # fingerprint = get_arch_dict(model.model.config)
-        # self.model_tracker.hotkey_to_model_fingerprint(fingerprint)
-        # 7) Optional hash check
-        if metadata.id.hash:
-            combined = get_hash_of_two_strings(metadata.id.hash, hotkey)
-            if combined != metadata.id.secure_hash:
-                raise MinerMisconfiguredError(hotkey, "Hash mismatch")
-
-        # 8) Validate constraints
-        if not ModelUpdater.verify_model_satisfies_constraints(model, comp_now.constraints):
-            raise MinerMisconfiguredError(
-                hotkey,
-                f"Model fails parameter/architecture constraints for competition {comp_now.id}"
-            )
-
-        # 9) Store the model locally.
-        try:
-            self.local_store.store_model(hotkey, model)
-        except ValueError as e:
-            raise MinerMisconfiguredError(hotkey, f"Failed to store model: {e}") from e
-
 
         return True
 

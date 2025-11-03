@@ -38,7 +38,11 @@ class DiskModelStore(LocalModelStore):
             save_directory=save_directory,
             safe=True,
         )
-        
+
+        weights_path = os.path.join(save_directory, "model.safetensors")
+        if not os.path.exists(weights_path):
+            raise ValueError("Failed to persist safetensor weights to disk")
+
         return model.id
 
     def retrieve_model(
@@ -59,6 +63,10 @@ class DiskModelStore(LocalModelStore):
             safe=True,
             map_location = 'cpu'
         )
+
+        weights_path = os.path.join(model_dir, "model.safetensors")
+        if not os.path.exists(weights_path):
+            raise FileNotFoundError("Expected model.safetensors missing from local snapshot")
 
         return Model(
             id=model_id,

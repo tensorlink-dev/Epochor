@@ -46,7 +46,7 @@ class FakeRemoteModelStore(RemoteModelStore):
     async def download_model(
         self, model_id: ModelId, local_path: str, model_constraints: ModelConstraints
     ) -> Model:
-        """Retrieves a model from the fake store."""
+        """Retrieves a submission snapshot from the fake store."""
         if self.throw_on_download:
             raise ValueError("Forced download error")
 
@@ -58,10 +58,11 @@ class FakeRemoteModelStore(RemoteModelStore):
                 model.source_path = local_path
             return model
 
-        config = DummyConfig()
-        model = DummyModel(config)
         os.makedirs(local_path, exist_ok=True)
-        return Model(id=model_id, model=model, source_path=local_path)
+        submission_file = os.path.join(local_path, "miner_submission.py")
+        with open(submission_file, "w", encoding="utf-8") as handle:
+            handle.write("def get_submission():\n    return object()\n")
+        return Model(id=model_id, source_path=local_path)
 
 
 class FakeModelMetadataStore(ModelMetadataStore):

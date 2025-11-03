@@ -125,12 +125,15 @@ class ModelId:
 
 @dataclasses.dataclass
 class Model:
-    """Represents a pre-trained foundation model and its accompanying artefacts."""
+    """Represents a validator-managed model or submission bundle."""
 
     id: ModelId
-    model: BaseTemporalModel
+    # Optional torch module. `None` when only the submission bundle (code) is available.
+    model: Optional[BaseTemporalModel] = None
     # Optional path to the locally cached submission directory (e.g. miner_submission.py, README, etc.).
     source_path: Optional[str] = None
+    # Optional metadata payload uploaded alongside the trained weights.
+    metadata: Optional[Dict[str, Any]] = None
 
 
 @dataclasses.dataclass

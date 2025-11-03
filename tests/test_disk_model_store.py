@@ -57,7 +57,7 @@ def test_delete_unreferenced_models(temp_dir, dummy_model):
     stored_model_id_2 = store.store_model(hotkey, Model(id=model_id_2, model=dummy_model))
 
     # Call delete_unreferenced_models with only the first model as valid
-    store.delete_unreferenced_models({hotkey: {stored_model_id_1}}, grace_period_seconds=0)
+    store.delete_unreferenced_models({hotkey: stored_model_id_1}, grace_period_seconds=0)
 
     # Check that the first model is not deleted
     retrieved_model_1 = store.retrieve_model(

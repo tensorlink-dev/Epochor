@@ -7,6 +7,12 @@ from typing import Any, Dict, Type
 
 import torch
 
+try:
+    from safetensors.torch import load_file as load_safetensors, save_file as save_safetensors
+except ImportError:  # pragma: no cover - optional dependency
+    load_safetensors = None
+    save_safetensors = None
+
 
 def _config_to_dict(config: Any) -> Dict[str, Any]:
     if config is None:
@@ -35,7 +41,15 @@ def save_hf(
         json.dump(_config_to_dict(config), handle, indent=2)
 
     weights_name = "model.safetensors" if safe else "pytorch_model.bin"
-    torch.save(model.state_dict(), os.path.join(save_directory, weights_name))
+    state_dict = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+    weights_path = os.path.join(save_directory, weights_name)
+
+    if safe:
+        if save_safetensors is None:
+            raise RuntimeError("safetensors is required for safe serialization but is not installed")
+        save_safetensors(state_dict, weights_path)
+    else:
+        torch.save(state_dict, weights_path)
 
 
 def _load_config(config_cls: Type, config_path: str) -> Any:
@@ -60,6 +74,12 @@ def load_hf(
     model = model_cls(config=config)
 
     weights_name = "model.safetensors" if safe else "pytorch_model.bin"
-    state = torch.load(os.path.join(model_name_or_path, weights_name), map_location=map_location)
+    weights_path = os.path.join(model_name_or_path, weights_name)
+    if safe:
+        if load_safetensors is None:
+            raise RuntimeError("safetensors is required for safe deserialization but is not installed")
+        state = load_safetensors(weights_path, device=map_location)
+    else:
+        state = torch.load(weights_path, map_location=map_location)
     model.load_state_dict(state, strict=False)
     return model

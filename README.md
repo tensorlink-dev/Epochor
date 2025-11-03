@@ -77,7 +77,7 @@ Miners target a compact API: subclasses of `epochor.model.base.BaseTemporalModel
 All competitions use a **consistent scoring pipeline**, with the **current primary metric being CRPS** (Continuous Ranked Probability Score). Future competitions may introduce additional or alternative metrics as needed.
 
 1. **Data Generation** – Fresh datasets (synthetic GP kernels, financial returns, etc.) are created or loaded each round.  
-2. **Forecasting** – Validators fetch miner models from Hugging Face and run them on unseen data.  
+2. **Training & Forecasting** – Validators fetch miner code submissions, train them on validator-curated data, and export the resulting checkpoints to Hugging Face as safetensors before scoring.
 3. **Evaluation** – Forecasts are scored using **CRPS** (ensemble CRPS when probabilistic sampling is available).  
 4. **Smoothing** – Scores are tracked with an **Exponential Moving Average (EMA)** for stability.  
 5. **Clone Assessment** – Duplicate detection prevents trivial copies from gaming rewards.  

@@ -1,13 +1,11 @@
 # epochor/storage/hf_model_store.py
 
+import json
 import os
 import shutil
 import tempfile
 import logging
-from dataclasses import replace
-from typing import Optional
 
-import bittensor as bt
 from huggingface_hub import HfApi, snapshot_download
 from huggingface_hub.utils import RepositoryNotFoundError
 
@@ -15,7 +13,7 @@ from epochor.model.base_hf_model_store import RemoteModelStore
 from epochor.model.model_data import Model, ModelId
 from epochor.model.model_constraints import ModelConstraints
 from epochor.model.model_updater import MinerMisconfiguredError
-from epochor.model.serialization import save_hf, load_hf
+from epochor.model.serialization import save_hf
 from epochor.utils.hashing import hash_directory
 from dotenv import load_dotenv
 load_dotenv()   # <-- populates os.environ from .env
@@ -62,12 +60,19 @@ class HuggingFaceModelStore(RemoteModelStore):
         with tempfile.TemporaryDirectory() as tmpdir:
             # Save the model and config to a temporary directory.
             # This prepares the content for both hashing and uploading.
+            if model.model is None:
+                raise ValueError("upload_model requires a trained torch.nn.Module instance")
             save_hf(
                 model=model.model,
                 config=model.model.config,
                 save_directory=tmpdir,
                 safe=True,  # Always use safetensors for safety and consistency.
             )
+
+            if model.metadata is not None:
+                metadata_path = os.path.join(tmpdir, "validator_run_metadata.json")
+                with open(metadata_path, "w", encoding="utf-8") as handle:
+                    json.dump(model.metadata, handle, indent=2, default=str)
 
             # Compute the secure hash from the contents of the local directory before uploading.
             secure_hash = hash_directory(tmpdir)
@@ -189,20 +194,12 @@ class HuggingFaceModelStore(RemoteModelStore):
                     message=f"Failed to persist submission snapshot for '{repo_id}': {e}",
                 ) from e
 
-            # 5. If the hash is valid, load the model from the persisted snapshot path.
-            try:
-                pt_model = load_hf(
-                    model_name_or_path=local_path,
-                    model_cls=model_constraints.model_cls,
-                    config_cls=model_constraints.config_cls,
-                    safe=True,
-                    map_location="cpu",
-                )
-            except Exception as e:
-                raise MinerMisconfiguredError(
-                    hotkey=model_id.name,
-                    message=f"Failed to load verified model '{repo_id}': {e}",
-                ) from e
+        # 5. Ensure the submission bundle contains the required entry point.
+        submission_file = os.path.join(local_path, "miner_submission.py")
+        if not os.path.isfile(submission_file):
+            raise MinerMisconfiguredError(
+                hotkey=model_id.name,
+                message="Downloaded submission bundle is missing miner_submission.py",
+            )
 
-        # 6. Return the loaded model with its original, verified ModelId and snapshot path.
-        return Model(id=model_id, model=pt_model, source_path=local_path)
+        return Model(id=model_id, source_path=local_path)

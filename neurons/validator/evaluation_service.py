@@ -1,6 +1,7 @@
 """Core evaluation engine for scoring miner submissions under validator control."""
 
 import dataclasses
+import datetime as dt
 import logging
 import math
 import os
@@ -13,8 +14,10 @@ import bittensor as bt
 
 from epochor.model.model_constraints import Competition
 from epochor.model.storage.disk_model_store import DiskModelStore
+from epochor.model.model_data import MinerSubmissionSnapshot, TrainingResultRecord, Model, ModelId
+from epochor.model.base_hf_model_store import RemoteModelStore
+from epochor.model.base_metadata_model_store import ModelMetadataStore
 from epochor.training import load_miner_module, run_training
-from epochor.model.model_data import MinerSubmissionSnapshot, TrainingResultRecord
 from epochor.validation.validation import ScoreDetails, score_time_series_model
 
 from .state import ValidatorState
@@ -38,15 +41,26 @@ class EvaluationService:
     executes the validator-owned training loop for each miner submission, and
     produces scoring artefacts for downstream weighting.
     """
-    def __init__(self, state: ValidatorState, metagraph: "bt.metagraph", local_store: DiskModelStore, device: str, metagraph_lock: threading.RLock):
+    def __init__(
+        self,
+        state: ValidatorState,
+        metagraph: "bt.metagraph",
+        local_store: DiskModelStore,
+        remote_store: RemoteModelStore,
+        metadata_store: ModelMetadataStore,
+        device: str,
+        metagraph_lock: threading.RLock,
+    ):
         """Initializes the EvaluationService."""
         self.state = state
         self.metagraph = metagraph
         self.local_store = local_store
+        self.remote_store = remote_store
+        self.metadata_store = metadata_store
         self.device = device
         self.metagraph_lock = metagraph_lock
 
-    def evaluate_uids(
+    async def evaluate_uids(
         self,
         uids: list[int],
         competition: Competition,
@@ -136,6 +150,19 @@ class EvaluationService:
             )
             self.state.model_tracker.record_training_result(hotkey, training_record)
 
+            published_model_id = await self._persist_trained_model(
+                uid=uid,
+                hotkey=hotkey,
+                competition=competition,
+                submission_snapshot=submission_snapshot,
+                summary=summary,
+                val_metrics=val_metrics,
+            )
+            if published_model_id is not None and published_model_id.commit:
+                uid_to_state[uid].repo_name = (
+                    f"{published_model_id.namespace}/{published_model_id.name}@{published_model_id.commit}"
+                )
+
         return uid_to_state
 
     # ------------------------------------------------------------------
@@ -179,3 +206,68 @@ class EvaluationService:
             if "miner_submission.py" in files:
                 return os.path.join(root, "miner_submission.py")
         return None
+
+    async def _persist_trained_model(
+        self,
+        *,
+        uid: int,
+        hotkey: str,
+        competition: Competition,
+        submission_snapshot: MinerSubmissionSnapshot,
+        summary,
+        val_metrics: dict,
+    ) -> typing.Optional[ModelId]:
+        model = summary.model
+        if model is None:
+            return None
+
+        sanitized_train = self._sanitize_metrics(summary.train_metrics)
+        sanitized_val = self._sanitize_metrics(val_metrics)
+
+        metadata = {
+            "hotkey": hotkey,
+            "uid": uid,
+            "competition_id": int(competition.id),
+            "submission_block": submission_snapshot.block,
+            "num_steps": summary.num_steps,
+            "device": summary.device,
+            "train_metrics": sanitized_train,
+            "val_metrics": sanitized_val,
+            "snapshot_path": submission_snapshot.snapshot_path,
+            "timestamp": dt.datetime.utcnow().isoformat() + "Z",
+        }
+
+        bundle = Model(
+            id=submission_snapshot.model_id,
+            model=model,
+            source_path=submission_snapshot.snapshot_path,
+            metadata=metadata,
+        )
+
+        try:
+            published_model_id = await self.remote_store.upload_model(bundle, competition.constraints)
+        except Exception:
+            logging.error("Failed to upload trained model for hotkey %s", hotkey)
+            return None
+
+        try:
+            await self.metadata_store.store_model_metadata(hotkey, published_model_id)
+        except Exception:
+            logging.error("Failed to commit metadata for hotkey %s", hotkey)
+
+        summary.model = None
+        return published_model_id
+
+    def _sanitize_metrics(self, metrics: typing.Mapping[str, typing.Any]) -> dict:
+        sanitized: dict[str, typing.Any] = {}
+        for key, value in metrics.items():
+            if isinstance(value, (int, float, str, bool)) or value is None:
+                sanitized[key] = value
+            elif hasattr(value, "item"):
+                try:
+                    sanitized[key] = value.item()
+                except Exception:
+                    sanitized[key] = str(value)
+            else:
+                sanitized[key] = str(value)
+        return sanitized
