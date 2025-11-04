@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 import traceback
 from dataclasses import dataclass
@@ -98,16 +99,22 @@ def run_submission_in_sandbox(
         "max_epochs": 1,
     }
 
+    output_root = os.path.join(snapshot_dir, ".validator_sandbox_output")
     start_time = time.monotonic()
     try:
-        summary = run_training(
-            submission,
-            cfg,
-            train_loader_factory=_make_loader_factory(train_batches),
-            val_loader_factory=_make_loader_factory(train_batches),
-            evaluate_fn=_make_evaluate_fn(samples, eval_tasks, seed),
-            preferred_device=preferred_device,
-        )
+        try:
+            summary = _runner_run_submission(
+                submission=submission,
+                cfg=cfg,
+                train_batches=train_batches,
+                samples=samples,
+                eval_tasks=eval_tasks,
+                seed=seed,
+                preferred_device=preferred_device,
+            )
+        except Exception:
+            shutil.rmtree(output_root, ignore_errors=True)
+            raise
     except Exception:
         return SandboxExecutionResult(
             status="runtime_error",
@@ -137,6 +144,26 @@ def run_submission_in_sandbox(
         status="ok",
         summary_json=json.dumps(payload),
         returncode=0,
+    )
+
+
+def _runner_run_submission(
+    *,
+    submission: Any,
+    cfg: Dict[str, Any],
+    train_batches: List[Any],
+    samples: List[Any],
+    eval_tasks: List[Any],
+    seed: int,
+    preferred_device: str,
+):
+    return run_training(
+        submission,
+        cfg,
+        train_loader_factory=_make_loader_factory(train_batches),
+        val_loader_factory=_make_loader_factory(train_batches),
+        evaluate_fn=_make_evaluate_fn(samples, eval_tasks, seed),
+        preferred_device=preferred_device,
     )
 
 
