@@ -8,7 +8,26 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Our Mission
+Epochor is the first Bittensor subnet purpose-built for **time-series foundation models (TSFMs)**. Where most forecasting subnets revolve around narrow, task-specific endpoints, Epochor invites miners to submit generalist models that can zero-shot or in-context forecast arbitrary series across domains, horizons, and sampling frequencies. That makes the subnet far more useful to real operators: they can deploy the leading models directly against whatever internal metrics matter today, without waiting for new competitions to be spun up tomorrow.
+
+This timing matters. Over the last year, temporal foundation models have exploded out of frontier labs, yet they still lack a neutral venue for systematic evaluation, ranking, and improvement on broad, high-quality data. Epochor fills that gap by continuously training, validating, and curating the strongest TSFMs—not just narrow, task-specific forecasters. The result is a shared base layer of temporal intelligence that businesses, researchers, and open-source builders can rely on.
+
+By anchoring these capabilities in an open incentive layer, we deliver a **decentralized alternative to state-of-the-art temporal models**. Operators can tap into production-grade checkpoints without relying on closed APIs, while miners earn on-chain rewards for pushing the frontier in public.
+
+This open pipeline also unlocks sustainable monetization. Epochor retrains and hardens the highest-performing submissions, packaging them into products that businesses can deploy directly. Commercial partners gain access to continually improving TSFMs without surrendering control to centralized providers, and their usage feeds back into the incentives that keep the subnet thriving.
+
 Our mission is to incentivize and democratize temporal intelligence. We are building an open-source, decentralized platform for time-series models that empowers anyone, anywhere, to develop and share state-of-the-art predictive models. By fostering collective innovation, we aim to ensure transparent, reproducible, and incentive-aligned progress towards robust, generalist temporal reasoning for the economic benefit of all.
+
+## Why Epochor Exists
+There are already a few prediction and forecasting subnets, but they are built around narrow, task-specific endpoints — miners serve a forecast or embedding for a single dataset or competition, and consumers only benefit if that exact stream keeps flowing. If a business needs to forecast a different metric, change the horizon, or adjust the cadence, they usually have to wait for an all-new task to attract miner attention.
+
+Epochor proposes something different: a subnet focused on **time-series foundation models**. Instead of pushing one-off predictions, miners submit general models capable of zero-shot or in-context forecasting across arbitrary domains, horizons, and frequencies. Validators continuously evaluate those models on rotating, high-signal datasets, so operators can deploy the winning checkpoints directly or expose them as endpoints for whatever internal series they care about.
+
+This model-centric loop compounds into a public good. Validators arbitrate scarce compute, miners compete on creativity and rigor, and the broader ecosystem gains a living catalog of production-ready temporal intelligence:
+
+- **For builders** – Provide a transparent path to monetize novel temporal architectures without spinning up their own infrastructure.
+- **For operators** – Offer a turnkey validator stack that curates high-signal datasets, trains submissions under controlled hardware budgets, and produces reproducible performance benchmarks.
+- **For the wider ecosystem** – Surface durable model primitives that institutions, researchers, and downstream applications can trust for economic and scientific decision making.
 
 ---
 
@@ -81,30 +100,16 @@ All competitions use a **consistent scoring pipeline**, with the **current prima
 3. **Evaluation** – Forecasts are scored using **CRPS** (ensemble CRPS when probabilistic sampling is available).  
 4. **Smoothing** – Scores are tracked with an **Exponential Moving Average (EMA)** for stability.  
 5. **Clone Assessment** – Duplicate detection prevents trivial copies from gaming rewards.  
-6. **Reward Allocation** – The **winner receives the majority share**, others get smaller proportional weights.  
+6. **Reward Allocation** – The **winner receives the majority share**, others get smaller proportional weights.
 
 ---
 
-## 📂 Project Structure
+## 🗓️ Competition Schedule & Datasets
 
-```
-epochor/
- ├─ datasets/       # dataset loaders & IDs
- ├─ evaluation/     # CRPS scoring pipeline
- ├─ generators/     # synthetic time-series generators
- ├─ model/          # submission tracker, stores, constraints
- ├─ training/       # validator-run training harness & contract
- ├─ validation/     # EMA tracker & stats helpers
- ├─ utils/          # logging, hashing, misc helpers
-neurons/validator/
- ├─ competition_manager.py  # schedules datasets
- ├─ evaluation_service.py   # trains + evaluates submissions
- ├─ model_manager.py        # syncs miner submissions
- ├─ scoring_service.py      # turns metrics into weights
- ├─ state.py                # persisted validator state
- ├─ weight_setter.py        # submits weights on-chain
- └─ validator.py            # orchestrates the validator
-```
+- The live schedule is encoded in [`competitions/competitions.py`](competitions/competitions.py). Each entry ties a `CompetitionId` to a set of `EvalTask`s, reward weights, and dataset parameters.
+- Dataset identifiers referenced by the schedule resolve to concrete loaders under [`epochor/datasets`](epochor/datasets).
+- During validation the `CompetitionManager` selects the active competition for the current block height, and the
+  `EvaluationService` hydrates miner submissions into full training runs before handing metrics to the `ScoringService`.
 
 ---
 
@@ -112,13 +117,19 @@ neurons/validator/
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/tensorlink-dev/epochor-subnet.git
-   cd epochor-subnet
+   git clone https://github.com/tensorlink-dev/epochor.git
+   cd epochor
    ```
 
 2. **Install dependencies**
    ```bash
    pip install -r requirements.txt
+   ```
+
+   _Optional_: install the package in editable mode so local modules can be
+   imported without adjusting `PYTHONPATH`.
+   ```bash
+   pip install -e .
    ```
 
 3. **Set up environment**
@@ -130,28 +141,62 @@ neurons/validator/
 4. **Run a neuron**
    - Validator:
      ```bash
-     python examples/run_validator.py \
+     python neurons/validator.py \
        --wallet.name <validator_wallet> \
        --wallet.hotkey <validator_hotkey> \
        --subtensor.network <network_name> \
        --netuid <epochor_netuid>
      ```
    - Miner:
-     1. Implement `miner_submission.py` exposing `get_submission()` with the `MinerSubmissionProtocol` hooks.
+     1. Implement `miner_submission.py` exposing `get_submission()` with the `MinerSubmissionProtocol` hooks defined in `epochor/training/validator_contract.py`.
      2. Package and upload the submission to your configured remote store (e.g. a private Hugging Face repo).
      3. Run the lightweight heartbeat miner (see `neurons/miner.py`) to stay registered on the subnet.
 
+For additional validator and miner configuration flags consult `neurons/config.py`.
+
+---
+
+## 📂 Project Structure
+
+```
+competitions/              # competition schedule definitions & IDs
+constants/                 # global defaults for validator & miner
+docs/                      # deployment guides for staging/testnet/mainnet
+epochor/
+ ├─ datasets/              # dataset IDs & loaders referenced by competitions
+ ├─ evaluation/            # CRPS evaluator used during scoring
+ ├─ generators/            # synthetic series generators
+ ├─ model/                 # submission metadata, tracker & storage adapters
+ ├─ training/              # validator contract & sandbox execution harness
+ ├─ utils/                 # logging, metagraph, miner iterator utilities
+ └─ validation/            # EMA smoothing & statistics helpers
+neurons/
+ ├─ miner.py               # lightweight heartbeat miner process
+ └─ validator/
+     ├─ competition_manager.py  # selects competitions for the current block
+     ├─ evaluation_service.py   # trains & evaluates miner submissions
+     ├─ model_manager.py        # syncs submissions from metadata/remote stores
+     ├─ sandbox.py              # optional Docker sandbox runtime
+     ├─ scoring_service.py      # converts metrics into weights & EMA
+     ├─ state.py                # persisted validator state and history
+     ├─ weight_setter.py        # pushes weights on-chain
+     └─ __init__.py             # exports validator services & state classes
+scripts/                  # helper scripts for CI / environment setup
+tests/                    # pytest suite covering tracker & validator logic
+```
+
+---
+
 ### 🧪 Sandbox Configuration
 
-Validators can optionally execute miner submissions inside an isolated Docker sandbox. This allows operators to pin the exact
-runtime, gate GPU exposure, and enforce strict execution limits.
+Validators execute miner submissions inside a hardened container runtime. Operators can adjust resource limits and image
+selection directly from the CLI:
 
-- `--sandbox.enable` – Toggle sandboxing on. When omitted, submissions run directly on the host.
-- `--sandbox.image` – Fully-qualified Docker image (e.g. `ghcr.io/<org>/epochor-sandbox:latest`) that contains all Python
-  dependencies required by miner submissions. If left empty the validator falls back to host execution.
-- `--sandbox.timeout_s` – Maximum wall-clock time allotted to a single sandboxed evaluation before it is terminated.
-- `--sandbox.gpu_mode` – Controls how GPUs are exposed to the container (`auto`, `none`, `exclusive`, etc.).
-- `--sandbox.extra_docker_args` – Additional CLI flags appended to the `docker run` command (e.g. mounts or environment vars).
+- `--sandbox_image` – Fully-qualified container image (default: `epochor-validator-sandbox:latest`).
+- `--sandbox_timeout` – Maximum wall-clock time (in seconds) before the run is terminated (use `0` to disable the limit).
+- `--sandbox_memory` – Optional memory limit (bytes). Set to `0` for no cap.
+- `--sandbox_cpus` – Optional CPU quota (fractional cores). Set to `0` for no cap.
+- `--sandbox_gpus` – Optional GPU limit. Set to `0` to avoid requesting GPU resources.
 
 Example Dockerfile skeleton that matches the validator environment:
 
@@ -167,7 +212,7 @@ Build and push the image, then launch the validator with sandboxing enabled:
 
 ```bash
 docker build -t ghcr.io/<org>/epochor-sandbox:latest .
-python neurons/validator.py --sandbox.enable --sandbox.image ghcr.io/<org>/epochor-sandbox:latest
+python neurons/validator.py --sandbox_image ghcr.io/<org>/epochor-sandbox:latest
 ```
 
 ---
