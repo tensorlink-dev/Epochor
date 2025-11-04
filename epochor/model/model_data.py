@@ -128,7 +128,7 @@ class Model:
     """Represents a pre-trained foundation model and its accompanying artefacts."""
 
     id: ModelId
-    model: BaseTemporalModel
+    model: Optional[BaseTemporalModel]
     # Optional path to the locally cached submission directory (e.g. miner_submission.py, README, etc.).
     source_path: Optional[str] = None
 
@@ -165,6 +165,7 @@ class TrainingResultRecord:
     val_metrics: Dict[str, Any]
     num_steps: int
     device: str
+    model_id: Optional[ModelId] = None
 
 
 @dataclasses.dataclass

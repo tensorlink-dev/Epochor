@@ -1,12 +1,4 @@
-"""Helpers for executing miner submissions inside an isolated sandbox.
-
-This module currently provides a minimal shim that mimics a sandboxed
-execution environment. It is designed so that the validator can treat the
-training loop as if it was executed in a separate runtime (e.g. Docker).
-As tighter isolation is introduced, the API exposed here should remain
-stable, limiting changes required in the evaluation service.
-"""
-
+"""Adapter that routes validator sandbox requests through the container runner."""
 from __future__ import annotations
 
 import json
@@ -17,33 +9,39 @@ import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from epochor.training import load_miner_module, run_training
-from epochor.validation.validation import score_time_series_model
+import torch
+
+from epochor.training.sandbox_runner import (
+    SandboxError,
+    SandboxExecutionError,
+    SandboxInvalidOutputError,
+    SandboxMissingOutputError,
+    SandboxResult,
+    SandboxRuntimeNotFound,
+    SandboxTimeoutError,
+    run_submission_in_sandbox as _runner_run_submission,
+)
 
 
 @dataclass
 class SandboxRuntimeConfig:
-    """Runtime options that describe how the sandbox should execute."""
+    """Validator-provided runtime options for sandboxed execution."""
 
     image: str
     timeout_seconds: int
     max_memory_bytes: Optional[int] = None
     max_cpus: Optional[float] = None
     max_gpus: Optional[float] = None
-
-
-@dataclass
-class SandboxExecutionResult:
-    """Result returned from :func:`run_submission_in_sandbox`."""
-
-    status: str
-    summary_json: Optional[str] = None
-    error: Optional[str] = None
-    returncode: Optional[int] = None
-
-    @property
-    def ok(self) -> bool:
-        return self.status == "ok" and self.summary_json is not None
+    runtime: str = "docker"
+    network_disabled: bool = True
+    read_only_root: bool = True
+    pids_limit: Optional[int] = 256
+    ulimit_nofile: Optional[int] = 1024
+    no_new_privileges: bool = True
+    drop_all_caps: bool = True
+    seccomp_profile: Optional[str] = None
+    additional_runtime_args: Sequence[str] = field(default_factory=tuple)
+    extra_env: Mapping[str, str] = field(default_factory=dict)
 
 
 def run_submission_in_sandbox(
@@ -51,9 +49,9 @@ def run_submission_in_sandbox(
     *,
     competition_id: int,
     seed: int,
-    train_batches: List[Any],
-    samples: List[Any],
-    eval_tasks: List[Any],
+    train_batches: Sequence[Mapping[str, torch.Tensor]],
+    samples: Sequence[Sequence[Mapping[str, torch.Tensor]]],
+    eval_tasks: Sequence[Any],
     preferred_device: str,
     runtime: SandboxRuntimeConfig,
 ) -> SandboxExecutionResult:
@@ -140,10 +138,47 @@ def run_submission_in_sandbox(
         "device": summary.device,
     }
 
-    return SandboxExecutionResult(
-        status="ok",
-        summary_json=json.dumps(payload),
-        returncode=0,
+    gpus_arg = str(runtime.max_gpus) if runtime.max_gpus and runtime.max_gpus > 0 else None
+    cpus_arg = str(runtime.max_cpus) if runtime.max_cpus and runtime.max_cpus > 0 else None
+    memory_arg = (
+        f"{int(runtime.max_memory_bytes)}b"
+        if runtime.max_memory_bytes and runtime.max_memory_bytes > 0
+        else None
+    )
+    timeout = runtime.timeout_seconds if runtime.timeout_seconds > 0 else None
+
+    staged_samples = []
+    for task_batches in samples:
+        prepared_batches = []
+        for batch in task_batches:
+            prepared_batches.append({key: tensor.detach().cpu() for key, tensor in batch.items()})
+        staged_samples.append(prepared_batches)
+
+    result = _runner_run_submission(
+        submission_dir=snapshot_dir,
+        train_batches=list(train_batches),
+        val_batches=list(train_batches),
+        evaluation_config=evaluation_config,
+        output_path=summary_path,
+        artifacts_dir=artifacts_dir,
+        evaluation_samples=staged_samples,
+        evaluation_tasks=list(eval_tasks),
+        evaluation_seed=seed,
+        runtime=runtime.runtime,
+        image=runtime.image or "epochor-sandbox:latest",
+        timeout=timeout,
+        gpus=gpus_arg,
+        cpus=cpus_arg,
+        memory=memory_arg,
+        extra_env=dict(runtime.extra_env),
+        additional_runtime_args=list(runtime.additional_runtime_args),
+        network_disabled=runtime.network_disabled,
+        read_only_root=runtime.read_only_root,
+        pids_limit=runtime.pids_limit,
+        ulimit_nofile=runtime.ulimit_nofile,
+        no_new_privileges=runtime.no_new_privileges,
+        drop_all_caps=runtime.drop_all_caps,
+        seccomp_profile=runtime.seccomp_profile,
     )
 
 
@@ -223,8 +258,13 @@ def _json_safe(value: Any) -> Any:
 
 
 __all__ = [
-    "SandboxExecutionResult",
+    "SandboxError",
+    "SandboxExecutionError",
+    "SandboxInvalidOutputError",
+    "SandboxMissingOutputError",
+    "SandboxResult",
     "SandboxRuntimeConfig",
+    "SandboxRuntimeNotFound",
+    "SandboxTimeoutError",
     "run_submission_in_sandbox",
 ]
-
