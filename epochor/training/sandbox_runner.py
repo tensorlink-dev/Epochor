@@ -59,6 +59,7 @@ class SandboxResult:
     summary: Mapping[str, Any]
     stdout: Sequence[str]
     stderr: Sequence[str]
+    artifacts_dir: Path
 
 
 _DEFAULT_RUNTIME = "docker"
@@ -70,13 +71,8 @@ _CONTAINER_OUTPUT = Path("/sandbox_out")
 _STAGING_CONFIG = "cfg.json"
 _STAGING_TRAIN = "train_batches.pt"
 _STAGING_VAL = "val_batches.pt"
-_HF_ENV_VARS = (
-    "HF_TOKEN",
-    "HF_ACCESS_TOKEN",
-    "HF_API_TOKEN",
-    "HUGGINGFACE_TOKEN",
-    "HUGGING_FACE_HUB_TOKEN",
-)
+_STAGING_EVAL_SAMPLES = "eval_samples.pt"
+_STAGING_EVAL_TASKS = "eval_tasks.pt"
 
 
 def run_submission_in_sandbox(
@@ -84,8 +80,12 @@ def run_submission_in_sandbox(
     train_batches: Sequence[Mapping[str, torch.Tensor]],
     val_batches: Sequence[Mapping[str, torch.Tensor]],
     evaluation_config: Mapping[str, Any],
-    output_path: os.PathLike[str] | str,
     *,
+    output_path: os.PathLike[str] | str,
+    artifacts_dir: os.PathLike[str] | str,
+    evaluation_samples: Sequence[Sequence[Mapping[str, torch.Tensor]]],
+    evaluation_tasks: Sequence[Any],
+    evaluation_seed: Optional[int] = None,
     runtime: str = _DEFAULT_RUNTIME,
     image: str = _DEFAULT_IMAGE,
     timeout: Optional[float] = None,
@@ -94,6 +94,13 @@ def run_submission_in_sandbox(
     memory: Optional[str] = None,
     extra_env: Optional[Mapping[str, str]] = None,
     additional_runtime_args: Optional[Sequence[str]] = None,
+    network_disabled: bool = True,
+    read_only_root: bool = True,
+    pids_limit: Optional[int] = 256,
+    ulimit_nofile: Optional[int] = 1024,
+    no_new_privileges: bool = True,
+    drop_all_caps: bool = True,
+    seccomp_profile: Optional[str] = None,
 ) -> SandboxResult:
     """Execute a miner submission within a sandboxed container.
 
@@ -109,6 +116,12 @@ def run_submission_in_sandbox(
         Must include a ``"training_cfg"`` mapping describing the validator run.
     output_path:
         Host path where the sandbox is expected to materialize the summary.
+    artifacts_dir:
+        Directory on the host where the sandbox will emit checkpoints and metadata.
+    evaluation_samples / evaluation_tasks:
+        Materialized evaluation payloads passed through to the sandbox for scoring.
+    evaluation_seed:
+        Seed forwarded to the sandbox to keep deterministic evaluation behaviour.
     runtime:
         Container runtime executable (defaults to ``docker``).
     image:
@@ -121,6 +134,9 @@ def run_submission_in_sandbox(
         Additional environment variables exposed to the sandbox.
     additional_runtime_args:
         Extra CLI flags appended to the runtime invocation.
+    network_disabled / read_only_root / pids_limit / ulimit_nofile / no_new_privileges /
+    drop_all_caps / seccomp_profile:
+        Hardening options applied to the container runtime invocation.
     """
 
     submission_path = Path(submission_dir).resolve()
@@ -130,6 +146,8 @@ def run_submission_in_sandbox(
     validator_root = Path(__file__).resolve().parents[1]
     output_file = Path(output_path).resolve()
     output_file.parent.mkdir(parents=True, exist_ok=True)
+    artifacts_path = Path(artifacts_dir).resolve()
+    artifacts_path.mkdir(parents=True, exist_ok=True)
 
     _validate_evaluation_config(evaluation_config)
 
@@ -139,10 +157,18 @@ def run_submission_in_sandbox(
         cfg_path = staging_dir / _STAGING_CONFIG
         train_path = staging_dir / _STAGING_TRAIN
         val_path = staging_dir / _STAGING_VAL
+        samples_path = staging_dir / _STAGING_EVAL_SAMPLES
+        tasks_path = staging_dir / _STAGING_EVAL_TASKS
 
-        _write_json(cfg_path, evaluation_config)
+        config_payload = dict(evaluation_config)
+        if evaluation_seed is not None:
+            config_payload = dict(config_payload)
+            config_payload["evaluation_seed"] = evaluation_seed
+        _write_json(cfg_path, config_payload)
         _serialize_batches(train_batches, train_path)
         _serialize_batches(val_batches, val_path)
+        torch.save(evaluation_samples, samples_path)
+        torch.save(list(evaluation_tasks), tasks_path)
 
         runtime_cmd = _build_runtime_command(
             runtime=runtime,
@@ -151,11 +177,21 @@ def run_submission_in_sandbox(
             validator_root=validator_root,
             submission_path=submission_path,
             output_path=output_file,
+            artifacts_path=artifacts_path,
+            evaluation_samples_name=_STAGING_EVAL_SAMPLES,
+            evaluation_tasks_name=_STAGING_EVAL_TASKS,
             gpus=gpus,
             cpus=cpus,
             memory=memory,
             additional_runtime_args=additional_runtime_args,
             extra_env=extra_env,
+            network_disabled=network_disabled,
+            read_only_root=read_only_root,
+            pids_limit=pids_limit,
+            ulimit_nofile=ulimit_nofile,
+            no_new_privileges=no_new_privileges,
+            drop_all_caps=drop_all_caps,
+            seccomp_profile=seccomp_profile,
         )
 
         _LOGGER.info("Executing sandbox command: %s", " ".join(runtime_cmd))
@@ -191,7 +227,18 @@ def run_submission_in_sandbox(
         )
 
     summary = _load_summary(output_file)
-    return SandboxResult(summary=summary, stdout=stdout_lines, stderr=stderr_lines)
+
+    if not artifacts_path.exists():
+        raise SandboxMissingOutputError(
+            f"Sandbox completed successfully but no artefacts were produced at {artifacts_path}"
+        )
+
+    return SandboxResult(
+        summary=summary,
+        stdout=stdout_lines,
+        stderr=stderr_lines,
+        artifacts_dir=artifacts_path,
+    )
 
 
 def _validate_evaluation_config(config: Mapping[str, Any]) -> None:
@@ -236,13 +283,41 @@ def _build_runtime_command(
     validator_root: Path,
     submission_path: Path,
     output_path: Path,
+    artifacts_path: Path,
+    evaluation_samples_name: str,
+    evaluation_tasks_name: str,
     gpus: Optional[str],
     cpus: Optional[str],
     memory: Optional[str],
     additional_runtime_args: Optional[Sequence[str]],
     extra_env: Optional[Mapping[str, str]],
+    network_disabled: bool,
+    read_only_root: bool,
+    pids_limit: Optional[int],
+    ulimit_nofile: Optional[int],
+    no_new_privileges: bool,
+    drop_all_caps: bool,
+    seccomp_profile: Optional[str],
 ) -> list[str]:
     cmd: list[str] = [runtime, "run", "--rm"]
+
+    if artifacts_path.parent != output_path.parent:
+        raise ValueError("artifacts_dir must share the same parent directory as output_path")
+
+    if network_disabled:
+        cmd.extend(["--network", "none"])
+    if read_only_root:
+        cmd.append("--read-only")
+    if pids_limit is not None:
+        cmd.extend(["--pids-limit", str(pids_limit)])
+    if ulimit_nofile is not None:
+        cmd.extend(["--ulimit", f"nofile={ulimit_nofile}:{ulimit_nofile}"])
+    if no_new_privileges:
+        cmd.extend(["--security-opt", "no-new-privileges"])
+    if drop_all_caps:
+        cmd.extend(["--cap-drop", "ALL"])
+    if seccomp_profile:
+        cmd.extend(["--security-opt", f"seccomp={seccomp_profile}"])
 
     if gpus:
         cmd.extend(["--gpus", gpus])
@@ -270,9 +345,6 @@ def _build_runtime_command(
     )
 
     env_vars = dict(extra_env or {})
-    for key in _HF_ENV_VARS:
-        if key in os.environ and key not in env_vars:
-            env_vars[key] = os.environ[key]
 
     env_vars.setdefault("PYTHONPATH", str(_CONTAINER_VALIDATOR))
 
@@ -293,6 +365,12 @@ def _build_runtime_command(
             str(_CONTAINER_SUBMISSION),
             "--output",
             str(_CONTAINER_OUTPUT / output_name),
+            "--artifacts",
+            str(_CONTAINER_OUTPUT / artifacts_path.name),
+            "--samples-name",
+            evaluation_samples_name,
+            "--tasks-name",
+            evaluation_tasks_name,
         ]
     )
 

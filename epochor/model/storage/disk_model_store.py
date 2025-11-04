@@ -30,15 +30,19 @@ class DiskModelStore(LocalModelStore):
         # Note: We use the hash of the model as the commit, since we don't have a true "commit" in the local case.
 
         save_directory = utils.get_local_model_snapshot_dir(self.base_dir, hotkey, model.id)
-        os.makedirs(save_directory, exist_ok=True)
+        shutil.rmtree(save_directory, ignore_errors=True)
 
-        save_hf(
-            model=model.model,
-            config=model.model.config,
-            save_directory=save_directory,
-            safe=True,
-        )
-        
+        if model.source_path:
+            shutil.copytree(model.source_path, save_directory, dirs_exist_ok=True)
+        else:
+            os.makedirs(save_directory, exist_ok=True)
+            save_hf(
+                model=model.model,
+                config=model.model.config,
+                save_directory=save_directory,
+                safe=True,
+            )
+
         return model.id
 
     def retrieve_model(

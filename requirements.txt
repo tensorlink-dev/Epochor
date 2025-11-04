@@ -11,6 +11,7 @@ pytest-socket
 keylimiter
 temporal
 huggingface_hub
+safetensors
 matplotlib
 pandas
 wandb
