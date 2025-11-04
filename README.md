@@ -8,10 +8,18 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Our Mission
+Epochor is the first Bittensor subnet purpose-built for **time-series foundation models (TSFMs)**. Where most forecasting subnets revolve around narrow, task-specific endpoints, Epochor invites miners to submit generalist models that can zero-shot or in-context forecast arbitrary series across domains, horizons, and sampling frequencies. That makes the subnet far more useful to real operators: they can deploy the leading models directly against whatever internal metrics matter today, without waiting for new competitions to be spun up tomorrow.
+
+This timing matters. Over the last year, temporal foundation models have exploded out of frontier labs, yet they still lack a neutral venue for systematic evaluation, ranking, and improvement on broad, high-quality data. Epochor fills that gap by continuously training, validating, and curating the strongest TSFMs—not just narrow, task-specific forecasters. The result is a shared base layer of temporal intelligence that businesses, researchers, and open-source builders can rely on.
+
 Our mission is to incentivize and democratize temporal intelligence. We are building an open-source, decentralized platform for time-series models that empowers anyone, anywhere, to develop and share state-of-the-art predictive models. By fostering collective innovation, we aim to ensure transparent, reproducible, and incentive-aligned progress towards robust, generalist temporal reasoning for the economic benefit of all.
 
 ## Why Epochor Exists
-Traditional forecasting competitions reward one-off leaderboard spikes and silo the resulting models. Epochor flips that dynamic by creating an always-on marketplace where validated, production-ready temporal models compound in value. Our end goal is to make global-scale forecasting talent and tooling a shared public good:
+There are already a few prediction and forecasting subnets, but they are built around narrow, task-specific endpoints — miners serve a forecast or embedding for a single dataset or competition, and consumers only benefit if that exact stream keeps flowing. If a business needs to forecast a different metric, change the horizon, or adjust the cadence, they usually have to wait for an all-new task to attract miner attention.
+
+Epochor proposes something different: a subnet focused on **time-series foundation models**. Instead of pushing one-off predictions, miners submit general models capable of zero-shot or in-context forecasting across arbitrary domains, horizons, and frequencies. Validators continuously evaluate those models on rotating, high-signal datasets, so operators can deploy the winning checkpoints directly or expose them as endpoints for whatever internal series they care about.
+
+This model-centric loop compounds into a public good. Validators arbitrate scarce compute, miners compete on creativity and rigor, and the broader ecosystem gains a living catalog of production-ready temporal intelligence:
 
 - **For builders** – Provide a transparent path to monetize novel temporal architectures without spinning up their own infrastructure.
 - **For operators** – Offer a turnkey validator stack that curates high-signal datasets, trains submissions under controlled hardware budgets, and produces reproducible performance benchmarks.
