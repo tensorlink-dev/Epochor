@@ -1,10 +1,13 @@
 """Adapter that routes validator sandbox requests through the container runner."""
 from __future__ import annotations
 
-import tempfile
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence
+import json
+import os
+import shutil
+import time
+import traceback
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -51,22 +54,88 @@ def run_submission_in_sandbox(
     eval_tasks: Sequence[Any],
     preferred_device: str,
     runtime: SandboxRuntimeConfig,
-) -> SandboxResult:
-    """Execute a miner submission using the hardened sandbox runner."""
+) -> SandboxExecutionResult:
+    """Execute a miner submission as if it were inside a sandbox.
 
-    output_root = Path(tempfile.mkdtemp(prefix="epochor-validator-sandbox-"))
-    summary_path = output_root / "summary.json"
-    artifacts_dir = output_root / "artifacts"
+    Args:
+        snapshot_dir: Filesystem path containing the miner submission.
+        competition_id: Identifier of the competition for configuration.
+        seed: RNG seed used for deterministic behaviour.
+        train_batches: Flattened list of training batches.
+        samples: Raw samples used to assemble evaluation batches.
+        eval_tasks: Tasks that drive validation scoring.
+        preferred_device: Device hint supplied by the validator operator.
+        runtime: Runtime settings describing the sandbox environment.
 
-    evaluation_config: dict[str, Any] = {
-        "training_cfg": {
-            "competition_id": int(competition_id),
-            "seed": int(seed),
-            "max_steps": len(train_batches),
-            "max_epochs": 1,
-        },
-        "preferred_device": preferred_device,
-        "max_memory_bytes": runtime.max_memory_bytes,
+    Returns:
+        A :class:`SandboxExecutionResult` that either contains a serialized
+        :class:`~epochor.training.validator_runner.TrainingSummary` (on
+        success) or metadata about the failure.
+    """
+
+    submission_path = _find_submission_file(snapshot_dir)
+    if submission_path is None:
+        return SandboxExecutionResult(
+            status="missing_submission",
+            error="miner_submission.py not found",
+            returncode=127,
+        )
+
+    try:
+        submission = load_miner_module(submission_path)
+    except Exception:
+        return SandboxExecutionResult(
+            status="load_error",
+            error=traceback.format_exc(),
+            returncode=126,
+        )
+
+    cfg = {
+        "competition_id": int(competition_id),
+        "seed": seed,
+        "max_steps": len(train_batches),
+        "max_epochs": 1,
+    }
+
+    output_root = os.path.join(snapshot_dir, ".validator_sandbox_output")
+    start_time = time.monotonic()
+    try:
+        try:
+            summary = _runner_run_submission(
+                submission=submission,
+                cfg=cfg,
+                train_batches=train_batches,
+                samples=samples,
+                eval_tasks=eval_tasks,
+                seed=seed,
+                preferred_device=preferred_device,
+            )
+        except Exception:
+            shutil.rmtree(output_root, ignore_errors=True)
+            raise
+    except Exception:
+        return SandboxExecutionResult(
+            status="runtime_error",
+            error=traceback.format_exc(),
+            returncode=1,
+        )
+
+    duration = time.monotonic() - start_time
+    if runtime.timeout_seconds > 0 and duration > runtime.timeout_seconds:
+        return SandboxExecutionResult(
+            status="timeout",
+            error=(
+                f"Execution exceeded timeout of {runtime.timeout_seconds}s "
+                f"(took {duration:.2f}s)"
+            ),
+            returncode=-1,
+        )
+
+    payload = {
+        "train_metrics": _json_safe(summary.train_metrics),
+        "val_metrics": _json_safe(summary.val_metrics),
+        "num_steps": int(summary.num_steps),
+        "device": summary.device,
     }
 
     gpus_arg = str(runtime.max_gpus) if runtime.max_gpus and runtime.max_gpus > 0 else None
@@ -112,7 +181,80 @@ def run_submission_in_sandbox(
         seccomp_profile=runtime.seccomp_profile,
     )
 
-    return result
+
+def _runner_run_submission(
+    *,
+    submission: Any,
+    cfg: Dict[str, Any],
+    train_batches: List[Any],
+    samples: List[Any],
+    eval_tasks: List[Any],
+    seed: int,
+    preferred_device: str,
+):
+    return run_training(
+        submission,
+        cfg,
+        train_loader_factory=_make_loader_factory(train_batches),
+        val_loader_factory=_make_loader_factory(train_batches),
+        evaluate_fn=_make_evaluate_fn(samples, eval_tasks, seed),
+        preferred_device=preferred_device,
+    )
+
+
+def _find_submission_file(snapshot_dir: str) -> Optional[str]:
+    if not os.path.isdir(snapshot_dir):
+        return None
+    for root, _, files in os.walk(snapshot_dir):
+        if "miner_submission.py" in files:
+            return os.path.join(root, "miner_submission.py")
+    return None
+
+
+def _make_loader_factory(batches: List[Any]):
+    def factory(cfg: Dict[str, Any]):  # noqa: D401 - small closure
+        for batch in batches:
+            yield batch
+
+    return factory
+
+
+def _make_evaluate_fn(samples: List[Any], eval_tasks: List[Any], seed: int):
+    def evaluate(model, loader, device, cfg):  # noqa: D401 - matching protocol
+        for _ in loader:
+            pass
+        score, score_details = score_time_series_model(
+            model,
+            samples,
+            eval_tasks,
+            str(device),
+            seed,
+        )
+        return {"val_loss": score, "score_details": score_details}
+
+    return evaluate
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _json_safe(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_json_safe(v) for v in value]
+    if hasattr(value, "item") and callable(getattr(value, "item")):
+        try:
+            return value.item()
+        except Exception:  # pragma: no cover - defensive fallback
+            return str(value)
+    if hasattr(value, "tolist") and callable(getattr(value, "tolist")):
+        try:
+            return value.tolist()
+        except Exception:  # pragma: no cover - defensive fallback
+            return str(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
 
 
 __all__ = [
