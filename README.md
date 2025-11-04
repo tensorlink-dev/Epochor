@@ -14,6 +14,8 @@ This timing matters. Over the last year, temporal foundation models have explode
 
 By anchoring these capabilities in an open incentive layer, we deliver a **decentralized alternative to state-of-the-art temporal models**. Operators can tap into production-grade checkpoints without relying on closed APIs, while miners earn on-chain rewards for pushing the frontier in public.
 
+This open pipeline also unlocks sustainable monetization. Epochor retrains and hardens the highest-performing submissions, packaging them into products that businesses can deploy directly. Commercial partners gain access to continually improving TSFMs without surrendering control to centralized providers, and their usage feeds back into the incentives that keep the subnet thriving.
+
 Our mission is to incentivize and democratize temporal intelligence. We are building an open-source, decentralized platform for time-series models that empowers anyone, anywhere, to develop and share state-of-the-art predictive models. By fostering collective innovation, we aim to ensure transparent, reproducible, and incentive-aligned progress towards robust, generalist temporal reasoning for the economic benefit of all.
 
 ## Why Epochor Exists
