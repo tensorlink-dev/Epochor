@@ -77,7 +77,7 @@ Rewards are weighted so the **#1 ranked miner receives the majority of emissions
 The winner-makes-most mechanism makes Sybil attacks unprofitable. Running many mediocre nodes yields minimal returns — miners must focus resources into building genuinely competitive models.
 
 ### 💡 Innovation Over Imitation
-Validator-run safeguards discourage duplicate or plagiarized models. Challengers must demonstrate **clear improvement in the scoring metric** to overtake the leader, forcing true innovation.
+Validator-run safeguards discourage duplicate or plagóriazed models. Challengers must demonstrate **clear improvement in the scoring metric** to overtake the leader, forcing true innovation.
 
 ### 🧠 Zero-Shot Generalization
 Validators draw from a **broad and rotating set of datasets** (synthetic + real). Miners never know which competition comes next, ensuring that rewarded models are **generalist** rather than overfit.
@@ -95,8 +95,7 @@ All competitions use a **consistent scoring pipeline**, with the **current prima
 2. **Forecasting** – Validators fetch miner models from Hugging Face and run them on unseen data.  
 3. **Evaluation** – Forecasts are scored using **CRPS** (ensemble CRPS when probabilistic sampling is available).  
 4. **Smoothing** – Scores are tracked with an **Exponential Moving Average (EMA)** for stability.  
-5. **Clone Assessment** – Duplicate detection prevents trivial copies from gaming rewards.  
-6. **Reward Allocation** – The **winner receives the majority share**, others get smaller proportional weights.
+5. **Reward Allocation** – The **winner receives the majority share**, others get smaller proportional weights.
 
 ---
 
@@ -152,7 +151,7 @@ For additional validator and miner configuration flags consult `neurons/config.p
 
 ---
 
-## 📂 Project Structure
+## 📂 Project structure
 
 ```
 competitions/              # competition schedule definitions & IDs
