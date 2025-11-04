@@ -43,29 +43,25 @@ The repository builds upon the work of the [Pretrain Subnet](https://github.com/
 
 ## Subnet Flow
 
-```
- Miner submission (miner_submission.py)
-        │
-        ▼
- Remote submission store (e.g. private HF repo)
-        │
-        ▼
- Validator (neurons/validator.py)
-        │
- ┌─────────────── Services ────────────────┐
- │ ModelManager      → sync miner submissions    │
- │ Training Loop     → run validator-owned steps │
- │ EvaluationService → score trained checkpoints │
- │ ScoringService    → compute CRPS + weights    │
- │ State/EMA         → smooth scores             │
- │ WeightSetter      → submit set_weights        │
- └───────────────────────────────────────────────┘
-        │
-        ▼
- Subtensor (on-chain weights & rewards)
-        │
-        ▼
- Rewards distributed via validator-managed scoring
+```mermaid
+graph TD
+    subgraph Miner
+        A[miner_submission.py] --> B{Remote Store e.g., Hugging Face};
+    end
+
+    subgraph Validator
+        B --> C[ModelManager];
+        C --> D[EvaluationService];
+        E[CompetitionManager] --> D;
+        D --> F[ScoringService];
+        F --> G[WeightSetter];
+    end
+
+    G --> H[Subtensor Blockchain];
+    H --> I[Rewards];
+
+    style Miner fill:#f9f,stroke:#333,stroke-width:2px
+    style Validator fill:#ccf,stroke:#333,stroke-width:2px
 ```
 
 ---
