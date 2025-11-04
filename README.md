@@ -12,6 +12,8 @@ Epochor is the first Bittensor subnet purpose-built for **time-series foundation
 
 This timing matters. Over the last year, temporal foundation models have exploded out of frontier labs, yet they still lack a neutral venue for systematic evaluation, ranking, and improvement on broad, high-quality data. Epochor fills that gap by continuously training, validating, and curating the strongest TSFMs—not just narrow, task-specific forecasters. The result is a shared base layer of temporal intelligence that businesses, researchers, and open-source builders can rely on.
 
+By anchoring these capabilities in an open incentive layer, we deliver a **decentralized alternative to state-of-the-art temporal models**. Operators can tap into production-grade checkpoints without relying on closed APIs, while miners earn on-chain rewards for pushing the frontier in public.
+
 Our mission is to incentivize and democratize temporal intelligence. We are building an open-source, decentralized platform for time-series models that empowers anyone, anywhere, to develop and share state-of-the-art predictive models. By fostering collective innovation, we aim to ensure transparent, reproducible, and incentive-aligned progress towards robust, generalist temporal reasoning for the economic benefit of all.
 
 ## Why Epochor Exists
@@ -24,8 +26,6 @@ This model-centric loop compounds into a public good. Validators arbitrate scarc
 - **For builders** – Provide a transparent path to monetize novel temporal architectures without spinning up their own infrastructure.
 - **For operators** – Offer a turnkey validator stack that curates high-signal datasets, trains submissions under controlled hardware budgets, and produces reproducible performance benchmarks.
 - **For the wider ecosystem** – Surface durable model primitives that institutions, researchers, and downstream applications can trust for economic and scientific decision making.
-
-Epochor is designed as the coordination layer that keeps these incentives aligned over the long haul. Validators arbitrate scarce compute, miners compete on creativity and rigor, and the community gains a living catalog of temporal intelligence.
 
 ---
 
