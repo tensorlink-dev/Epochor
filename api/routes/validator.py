@@ -6,6 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import or_, select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from ..config import Settings, get_settings
@@ -37,7 +38,7 @@ def _lease_candidate(
     lease_seconds: int,
 ) -> Optional[ModelSubmission]:
     now = datetime.now(timezone.utc)
-    stmt = (
+    stmt_base = (
         select(ModelSubmission)
         .where(
             ModelSubmission.current_pool == pool,
@@ -55,7 +56,18 @@ def _lease_candidate(
         )
         .limit(1)
     )
-    candidate = session.execute(stmt).scalars().first()
+
+    stmt = stmt_base
+    try:
+        stmt = stmt.with_for_update(skip_locked=True)
+    except AttributeError:  # SQLAlchemy <2.0 compatibility
+        pass
+
+    try:
+        candidate = session.execute(stmt).scalars().first()
+    except DBAPIError:
+        # Some SQLite builds do not support FOR UPDATE; retry without the hint.
+        candidate = session.execute(stmt_base).scalars().first()
     if candidate is None:
         return None
     candidate.assigned_validator = validator_hotkey
@@ -78,7 +90,10 @@ def request_training_job(
         lease_seconds = _lease_duration_for_pool(settings, pool)
         candidate = _lease_candidate(session, pool, payload.validator_hotkey, lease_seconds)
         if candidate is not None:
-            limit = payload.capacity_hint_sec or lease_seconds
+            if payload.capacity_hint_sec is not None:
+                limit = min(payload.capacity_hint_sec, lease_seconds)
+            else:
+                limit = lease_seconds
             return TrainingJobResponse(
                 submission_id=candidate.id,
                 model_id=candidate.model_id,

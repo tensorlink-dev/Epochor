@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -214,14 +215,23 @@ def test_concurrent_request_prevents_double_assignment(client):
         model_id="concurrent",
         current_pool=SubmissionPool.SHALLOW,
     )
-    first = client.post(
-        "/validator/request-training-job",
-        json={"validator_hotkey": "validator-a"},
-    )
-    second = client.post(
-        "/validator/request-training-job",
-        json={"validator_hotkey": "validator-b"},
-    )
+
+    barrier = threading.Barrier(3)
+
+    def _request(hotkey: str):
+        barrier.wait()
+        return client.post(
+            "/validator/request-training-job",
+            json={"validator_hotkey": hotkey},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fut1 = pool.submit(_request, "validator-a")
+        fut2 = pool.submit(_request, "validator-b")
+        barrier.wait()
+        first = fut1.result()
+        second = fut2.result()
+
     assigned_count = _count_assignments()
     assert assigned_count == 1
     assert first.status_code == 200
