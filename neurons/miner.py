@@ -20,9 +20,11 @@ import argparse
 import asyncio
 import os
 import time
+from typing import Optional
 
 import bittensor as bt
 from dotenv import load_dotenv
+import httpx
 
 from epochor.utils import logging
 from epochor.utils import metagraph_utils
@@ -55,6 +57,30 @@ def get_config():
     )
     parser.add_argument(
         "--list_competitions", action="store_true", help="Print out all competitions"
+    )
+    parser.add_argument(
+        "--platform_api_url",
+        type=str,
+        default=os.environ.get("EPOCHOR_API_URL", ""),
+        help="Optional platform API endpoint for submissions and heartbeats.",
+    )
+    parser.add_argument(
+        "--platform_api_token",
+        type=str,
+        default=os.environ.get("EPOCHOR_API_TOKEN", ""),
+        help="Bearer token for the platform API.",
+    )
+    parser.add_argument(
+        "--model_code_url",
+        type=str,
+        default=os.environ.get("EPOCHOR_MODEL_CODE_URL", ""),
+        help="Model submission code URL for automatic registration.",
+    )
+    parser.add_argument(
+        "--model_id",
+        type=str,
+        default=os.environ.get("EPOCHOR_MODEL_ID", ""),
+        help="Stable identifier for the miner submission when auto-submitting.",
     )
 
     # Include wallet and logging arguments from bittensor
@@ -121,6 +147,14 @@ async def main(config: bt.config):
     if not config.offline:
         metagraph_utils.assert_registered(wallet, metagraph)
 
+    _maybe_submit_to_platform(
+        api_url=config.platform_api_url,
+        api_token=config.platform_api_token,
+        hotkey=wallet.hotkey.ss58_address,
+        model_code_url=config.model_code_url,
+        model_id=config.model_id or None,
+    )
+
     # Keep the miner alive indefinitely.
     logging.info("Miner running...")
     try:
@@ -146,6 +180,33 @@ async def main(config: bt.config):
         logging.success("Miner stopped by user.")
     except Exception as e:
         logging.error(f"An error occurred: {e}")
+
+
+def _maybe_submit_to_platform(
+    api_url: str,
+    api_token: str,
+    hotkey: str,
+    model_code_url: Optional[str],
+    model_id: Optional[str],
+) -> None:
+    api_url = (api_url or "").strip().rstrip("/")
+    if not api_url or not model_code_url:
+        return
+    payload = {"hotkey": hotkey, "model_code_url": model_code_url}
+    if model_id:
+        payload["model_id"] = model_id
+    headers = {}
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
+    try:
+        response = httpx.post(f"{api_url}/miner/submit", json=payload, timeout=10.0, headers=headers)
+        response.raise_for_status()
+        logging.info(
+            "Submitted miner to platform API",
+            extra={"submission": response.json()},
+        )
+    except Exception as exc:
+        logging.warning(f"Failed to submit miner payload to API: {exc}")
 
 
 if __name__ == "__main__":

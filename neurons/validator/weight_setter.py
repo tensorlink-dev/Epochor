@@ -8,6 +8,7 @@ from datetime import timedelta
 
 import bittensor as bt
 import torch
+import httpx
 import numpy as np  # only for typing; we convert via .numpy()
 import constants
 
@@ -27,6 +28,8 @@ class WeightSetter:
         weights: torch.Tensor,
         metagraph_lock: threading.RLock,
         cadence: typing.Union[float, int, timedelta] = None,
+        api_base_url: typing.Optional[str] = None,
+        api_token: typing.Optional[str] = None,
     ):
         """Initializes the WeightSetter."""
         self.subtensor = subtensor
@@ -38,6 +41,8 @@ class WeightSetter:
         self.weight_lock = threading.RLock()
         self.stop_event = threading.Event()
         self._thread: typing.Optional[threading.Thread] = None
+        self.api_base_url = api_base_url.rstrip("/") if api_base_url else None
+        self.api_token = api_token
         
         cadence = cadence or getattr(constants, "set_weights_cadence", 5400)
         self.cadence_s = float(cadence.total_seconds() if isinstance(cadence, timedelta) else cadence)
@@ -88,6 +93,7 @@ class WeightSetter:
 
         def _blocking_call() -> typing.Tuple[bool, str]:
             try:
+                self._pull_latest_weights()
                 with self.metagraph_lock:
                     uids = self.metagraph.uids
                 with self.weight_lock:
@@ -112,3 +118,42 @@ class WeightSetter:
         except asyncio.TimeoutError:
             bt.logging.error(f"Failed to set weights after {ttl} seconds (timeout).")
             return False, f"Timeout after {ttl} seconds"
+
+    def _pull_latest_weights(self) -> None:
+        """Fetch the latest weights from the platform API if configured."""
+
+        if not self.api_base_url:
+            return
+
+        url = f"{self.api_base_url}/scoring/weights"
+        headers = {}
+        if self.api_token:
+            headers["Authorization"] = f"Bearer {self.api_token}"
+
+        try:
+            response = httpx.get(url, headers=headers, timeout=10.0)
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            bt.logging.warning(f"Failed to pull weights from API: {exc}")
+            return
+
+        weights_map = payload.get("weights", {})
+        if not isinstance(weights_map, dict):
+            return
+
+        with self.metagraph_lock:
+            hotkey_to_uid = {hotkey: uid for uid, hotkey in enumerate(self.metagraph.hotkeys)}
+
+        new_weights = torch.zeros_like(self.weights.detach().to("cpu"))
+        for hotkey, value in weights_map.items():
+            uid = hotkey_to_uid.get(hotkey)
+            if uid is None:
+                continue
+            try:
+                new_weights[uid] = float(value)
+            except (TypeError, ValueError):
+                continue
+
+        with self.weight_lock:
+            self.weights.copy_(new_weights.to(self.weights.device))
