@@ -1,89 +1,89 @@
 # Discovery Report
 
 ## Repository Topology (Top 3 Levels)
-- `/competitions`
-  - Schedules and competition metadata (`competitions.py`, `epsilon.py`).
-- `/constants`
-  - Global defaults, runtime constants, environment toggles.
-- `/docs`
-  - Existing run-books for staging/testnet/mainnet and stream tutorial assets.
-- `/epochor`
-  - Core library package: configs, datasets, generators, training/evaluation utilities, model stores, helpers.
+- `/api`
+  - FastAPI control plane: app factory (`main.py`), configuration (`config.py`), database helpers (`database.py`), ORM models (`models.py`), background scheduler (`competition_scheduler.py`), security utilities, and request routers under `routes/`.
+- `/templates/validator_training`
+  - Chutes-compatible validator training template (entry script, miner protocol shim, Hugging Face IO helpers, template builder).
 - `/neurons`
-  - CLI entrypoints (`miner.py`, `validator.py`) and validator submodules (`validator/`).
-- `/scripts`
-  - Shell helpers for dependency compatibility/install.
+  - Legacy miner/validator entrypoints plus refactored validator submodules (state, sandbox, evaluation, scoring, weight setter shim that now consumes API weights).
+- `/migrations`
+  - Alembic environment and versioned migrations for the platform database.
+- `/docs`
+  - Reference documentation, including this discovery report and the compatibility matrix.
 - `/tests`
-  - Pytest suite for validators, datasets, disk/HF stores, model utilities.
+  - Pytest suite covering API flows (`tests/api`), training template behaviour (`tests/templates`), and historical unit tests for core libraries.
+- `/epochor`, `/competitions`, `/constants`, `/scripts`
+  - Pre-existing library packages, schedules, constants, and helper scripts retained from the legacy repo.
 
 ## Key Modules & Responsibilities
-- `epochor/training/validator_runner.py`
-  - Validator-owned training loop (`run_training`, `load_miner_module`).
-- `epochor/evaluation/evaluation.py`
-  - Score calculation helpers (CRPS, EMA smoothing integration).
-- `epochor/model/*`
-  - `storage/` backends (disk, HF, metadata via chain), model tracker/updater.
-- `neurons/validator/*`
-  - `state.py`: persistent validator state, EMA tracker, UID queues.
-  - `model_manager.py`: fetch/update miner submissions, Hugging Face sync.
-  - `evaluation_service.py`: sandbox execution, artifact uploads, scoring payloads.
-  - `scoring_service.py`: transforms scores into weight updates.
-  - `competition_manager.py`: rotates competitions, prepares data batches.
-  - `sandbox.py`: wraps submission execution with resource limits.
-  - `weight_setter.py`: pushes weights on-chain via subtensor.
-- `neurons/config.py`
-  - Shared argparse-based CLI configuration for miner/validator entrypoints.
+- `api/main.py`
+  - FastAPI application factory that initialises the database and wires miner, validator, and scoring routers.
+- `api/routes/miner.py`
+  - `/miner/submit` endpoint enforcing hotkey allowlists, registering submissions, and resetting tournament state.
+- `api/routes/validator.py`
+  - `/validator/request-training-job`, `/validator/submit-results`, `/validator/heartbeat` endpoints handling lease orchestration, results ingestion, and liveness tracking.
+- `api/routes/scoring.py`
+  - `/scoring/weights` endpoint exposing deterministic subnet weight calculations.
+- `api/competition_scheduler.py`
+  - APScheduler-powered promotion cycle (shallow→medium→final→winner), stale lease reaper, and cleanup routines.
+- `api/models.py`
+  - SQLAlchemy models for submissions and heartbeats plus winner invariants.
+- `api/config.py` & `api/security.py`
+  - Centralised settings (Pydantic) and bearer token / hotkey allowlist enforcement.
+- `templates/validator_training/trainer_entry.py`
+  - Validator-owned training loop enforcing determinism, 1-hour cap, Hugging Face uploads, and Chutes environment contracts.
+- `templates/validator_training/template_builder.py`
+  - Factory for building pinned Chutes images with proper mounts and environment variables.
+- `neurons/validator/weight_setter.py`
+  - Background loop that now pulls weights from the API before setting them on-chain.
+- `neurons/miner.py`
+  - Legacy miner CLI augmented to auto-submit to the platform API when configured.
 
 ## Entrypoints, Configs, Environment
 - CLI scripts
-  - `python neurons/validator.py` – main validator loop; accepts Bittensor wallet/subtensor flags plus validator-specific args (`--model_dir`, `--sandbox_*`, etc.).
-  - `python neurons/miner.py` – lightweight miner heartbeat; relies on environment `TOKENIZERS_PARALLELISM=true`.
+  - `python api/main.py` served via `uvicorn api.main:app` (FastAPI control plane).
+  - `python neurons/validator.py` legacy validator orchestrator (still initialises Bittensor stack but can consume API URLs/tokens for weights).
+  - `python neurons/miner.py` miner heartbeat loop with optional API auto-submit flags (`--platform_api_url`, `--platform_api_token`, `--model_id`).
 - Configuration
-  - CLI flags via `neurons/config.py` (base + validator-specific arguments).
-  - Constants in `constants/__init__.py` (WANDB project, cadences, EMA alpha, etc.).
-  - `.env.example` for WANDB/HF tokens (loaded indirectly in model stores via `dotenv`).
-- Environment variables in active use
-  - `IS_LOCAL_DEVELOPMENT_MODE`, `LOCAL_MODE_NEURONS_COUNT` for development behavior.
-  - `TOKENIZERS_PARALLELISM` toggled in miner.
-  - Hugging Face token expected via `HF_WRITE_TOKEN_ENV` (in `epochor/utils/hf_io.py`).
+  - API settings via environment variables prefixed `EPOCHOR_` (`database_url`, `api_token`, hotkey allowlists, lease durations, promotion thresholds, scheduler cadences).
+  - Validator/miner CLI flags remain under `neurons/config.py`; new optional fields surfaced in validator state (`platform_api_url`, `platform_api_token`, sandbox overrides).
+- Environment variables
+  - `EPOCHOR_API_URL`, `EPOCHOR_API_TOKEN`, `EPOCHOR_MODEL_ID`, `EPOCHOR_MODEL_CODE_URL` for miners.
+  - `HF_WRITE_TOKEN_ENV` consumed by template/HF uploads; defaults respected.
+  - Scheduler/lease timings configurable via `EPOCHOR_*_POOL_LEASE_SECONDS`, `EPOCHOR_HEARTBEAT_TIMEOUT_SECONDS`.
 
 ## Training / Evaluation Boundaries
-- Training harness: `epochor/training/validator_runner.py` (interfaces with miner submissions through `MinerSubmissionProtocol`).
-- Sandbox invocation: `neurons/validator/sandbox.py` (wraps training runner inside containerized execution, enforces limits).
-- Evaluation scoring: `epochor/evaluation/evaluation.py` and `neurons/validator/scoring_service.py` (CRPS, EMA accumulation, weight computation).
-- Storage boundaries: `epochor/model/storage/hf_model_store.py`, `disk_model_store.py`, `metadata_model_store.py` (HF uploads, disk caching, chain metadata).
+- Training harness now lives inside `templates/validator_training/trainer_entry.py` (Chutes template) and still invokes miner submissions via `MinerSubmissionProtocol`.
+- Evaluation and scoring remain in `neurons/validator/evaluation_service.py` & `scoring_service.py`, but API now owns tournament lifecycle and weight computation.
+- Hugging Face uploads delegated through `epochor.utils.hf_io` which the template re-exports; validator weight setter consumes API `/scoring/weights`.
+- Sandbox/network restrictions enforced inside the template (network disabled by default, deterministic seeds, 1-hour cap) and by validator sandbox runtime config.
 
 ## Existing APIs / Servers / DB Layers
-- No FastAPI/HTTP servers present.
-- No ORM or persistent DB models; storage relies on disk artifacts plus chain metadata.
-- Scheduling handled in-process via `CompetitionManager` and timer loops; no external job queues.
-- Weight setting handled directly through `WeightSetter` interacting with Bittensor subtensor.
+- FastAPI server exposing miner, validator, and scoring routes (see Key Modules).
+- SQLAlchemy ORM with Alembic migrations stored under `/migrations`; `migrations/env.py` binds to `EPOCHOR_DATABASE_URL` for offline/online runs.
+- APScheduler-based competition scheduler integrated in API module; reaper job handles stale leases.
+- Weight setter fetches weights via REST before calling Bittensor `set_weights`.
 
 ## Validator State Management
-- `neurons/validator/state.py`
-  - Pickle/JSON-backed persistence of model tracker, competition EMA tracker, UID queues.
-  - State directory computed from `config.model_dir / "vali-state"`.
-  - `ModelTracker` (in `epochor/model/model_tracker.py`) stores miner submissions & checkpoints.
+- Legacy state persists via `neurons/validator/state.py`; still handles EMA tracker, UID queues, and disk cache.
+- Validator weight setter now synchronises with API to align on winners/weights.
+- Validator heartbeat endpoint persists `ValidatorHeartbeat` rows for lease reaping.
 
 ## Known Forks / Duplication Signals
-- Storage implementations under `epochor/model/storage/` include disk + Hugging Face variants; no apparent duplicates.
-- No parallel validator implementations detected; single canonical orchestrator in `neurons/validator.py` with modular subcomponents.
-- No existing API server stubs or alternative scheduler pipelines.
+- `templates/validator_training/hf_io.py` simply re-exports canonical `epochor.utils.hf_io` helpers to maintain backwards-compatible imports.
+- `templates/validator_training/miner_protocol.py` subclasses the canonical protocol for template-local imports.
+- Legacy validator orchestrator still contains older flow (metagraph sync, competition manager); API introduces new control plane but no duplicate scheduler inside validator code yet.
 
 ## Tests & Coverage Overview
-- Pytest suite under `/tests` covers:
-  - Dataset generation utilities (`test_data_generator.py`).
-  - Disk/HF model store behavior (`test_disk_model_store.py`).
-  - Model tracker utilities (`test_model_tracker.py`).
-  - Validator orchestration pieces (`test_validator.py`, `test_validator_training.py`).
-  - Misc helpers (`test_disk_utils.py`, `test_model_utils.py`).
-- No coverage reports committed; default `pytest` runner.
+- `tests/api/test_platform_api.py` covers miner submit, job leasing priority, results submission, lease reaping, promotion chain, concurrency guards, and weight aggregation.
+- `tests/templates/test_trainer_entry.py` validates determinism, time cap, protocol enforcement, resume, checkpoint hashing, and HF upload scaffolding.
+- Historical tests under `tests/` remain untouched (datasets, disk stores, validator utilities) but rely on torch/hf dependencies.
+- No coverage reports committed; pytest remains the primary runner.
 
 ## "Do Not Break" Surfaces
-- Public imports from `neurons` package (validator/miner entrypoints) and `epochor.training.validator_runner`.
-- CLI flags defined in `neurons/config.py` and inherited Bittensor CLI arguments.
-- Competition schedule data contract (`competitions/competitions.py`).
-- Miner submission protocol defined in `epochor/training/validator_contract.py`.
-- Model tracker storage schema (`epochor/model/model_tracker.py`).
-- EMA tracker & weighting pipeline (`epochor/validation/ema_tracker.py`, `neurons/validator/weight_setter.py`).
-- Subtensor interaction contract for weights (configurable cadences, wallet requirements).
+- Public import paths (`templates.validator_training.miner_protocol.MinerSubmissionProtocol`, `neurons.validator.weight_setter.WeightSetter`, `api.schemas.*`).
+- REST endpoints contracts (payload schemas and status codes) for miners/validators/scoring.
+- Alembic migration history (`0001_initial`) and schema invariants (unique `model_id`, single winner enforcement).
+- Hugging Face IO utilities (`epochor.utils.hf_io`) and template environment variables (`SUBMISSION_DIR`, `ARTIFACTS_DIR`).
+- Validator/miner CLI flags and configuration surfaces inherited from legacy code.
