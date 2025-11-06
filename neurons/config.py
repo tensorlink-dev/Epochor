@@ -97,6 +97,24 @@ def add_validator_args(parser):
         default=0.0,
         help="Optional GPU limit for sandboxed execution; 0 disables the cap.",
     )
+    parser.add_argument(
+        "--platform_api_url",
+        type=str,
+        default=os.environ.get("EPOCHOR_API_URL", ""),
+        help="Optional platform API endpoint for leasing jobs.",
+    )
+    parser.add_argument(
+        "--platform_api_token",
+        type=str,
+        default=os.environ.get("EPOCHOR_API_TOKEN", ""),
+        help="Bearer token for the platform API.",
+    )
+    parser.add_argument(
+        "--platform_idle_sleep",
+        type=int,
+        default=int(os.environ.get("EPOCHOR_PLATFORM_IDLE_SLEEP", 60)),
+        help="Seconds to sleep when no jobs are available from the platform API.",
+    )
 
 def validator_config():
     """Returns the config for the validator."""

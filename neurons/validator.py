@@ -118,8 +118,14 @@ class Validator:
             get_current_block_fn=self._get_current_block,      # ← required too
         )
         self.weight_setter = WeightSetter(
-            self.weights_subtensor, self.wallet, self.config.netuid, self.metagraph,
-            self.weights, self.metagraph_lock
+            self.weights_subtensor,
+            self.wallet,
+            self.config.netuid,
+            self.metagraph,
+            self.weights,
+            self.metagraph_lock,
+            api_base_url=getattr(self.config, "platform_api_url", ""),
+            api_token=getattr(self.config, "platform_api_token", ""),
         )
         self.competition_manager = CompetitionManager(self.state)
         sandbox_image = str(getattr(self.config, "sandbox_image", ""))

@@ -151,6 +151,51 @@ For additional validator and miner configuration flags consult `neurons/config.p
 
 ---
 
+## 🧩 Platform API & Scheduler
+
+The refactored platform introduces a centralized API and scheduler that coordinate miner submissions, validator job leasing, and weight computation.
+
+### API Server
+
+```bash
+uvicorn api.main:app --reload
+```
+
+The server defaults to `sqlite:///./epochor.db` for storage. Adjust via `EPOCHOR_DATABASE_URL`. An optional bearer token can be provided through `EPOCHOR_API_TOKEN`.
+
+### Database Migrations & Seeding
+
+```bash
+alembic upgrade head
+python scripts/dev_seed.py
+```
+
+### Scheduler
+
+```bash
+python -c "from api.competition_scheduler import CompetitionScheduler; CompetitionScheduler().start()"
+```
+
+The scheduler promotes submissions across pools and reaps stale leases; run alongside the API.
+
+### Validator Worker (API Mode)
+
+```bash
+python neurons/validator.py --platform_api_url http://127.0.0.1:8000 --wallet.name <wallet> --wallet.hotkey <hotkey>
+```
+
+Validators will lease jobs from the API, execute training via the existing sandbox pipeline, and submit results back to the service. Use `--platform_api_token` if the API requires auth.
+
+### Miner Auto-Submission
+
+```bash
+python neurons/miner.py --platform_api_url http://127.0.0.1:8000 --model_code_url https://huggingface.co/<repo>
+```
+
+Passing `--model_id` allows updating an existing submission without changing identifiers.
+
+---
+
 ## 📂 Project structure
 
 ```
@@ -220,3 +265,39 @@ python neurons/validator.py --sandbox_image ghcr.io/<org>/epochor-sandbox:latest
 - **Monitor Logs** – Track metrics in WandB and logs.  
 
 ---
+
+---
+
+## 🧪 Validator Training Template
+
+Validator-owned training runs execute via the Chutes template shipped under [`templates/validator_training`](templates/validator_training).
+
+### Local Parity Runs
+
+The template entrypoint exposes a single async function, `run(inputs)`, that can be executed directly for sandbox parity:
+
+```bash
+python -c "import asyncio, os;\nfrom templates.validator_training import trainer_entry;\nos.environ['SUBMISSION_DIR']='</path/to/submission>';\nos.environ['ARTIFACTS_DIR']='</path/to/artifacts>';\nos.environ['HF_TOKEN']='<hf-write-token>';\nprint(asyncio.run(trainer_entry.run({'cfg': {'seed': 42, 'max_steps': 10}, 'lease': {'round': 1, 'submission_id': 'sub-123', 'model_id': 'model-123', 'miner_hotkey': 'miner-hotkey'}})))"
+```
+
+### Building the Chute Image
+
+Use the helper factory to produce a GPU-enabled Chute that copies the template code and pins dependencies:
+
+```python
+from templates.validator_training.template_builder import build_validator_training_template
+
+chute = build_validator_training_template(
+    username="validator-hotkey",
+    name="epo-validator-training",
+    gpu_count=1,
+    timeout_seconds=3900,
+)
+chute.build()
+```
+
+### CI Execution
+
+In continuous integration, point the validator worker at the generated Chute or call `trainer_entry.run` directly to simulate execution. The template enforces deterministic seeds, a one-hour cap, `.safetensors` checkpoints with SHA256 manifests, and protocol validation for miner submissions.
+
+Successful runs persist a `*_metadata.json` manifest alongside the checkpoint, then push both artifacts to the Hugging Face Hub using the miner hotkey as the repository namespace. Configure the `HF_TOKEN` environment variable with a write-enabled token before invocation. The returned payload includes the repository identifier and commit hash so the validator can forward the checkpoint URL to the platform API.
