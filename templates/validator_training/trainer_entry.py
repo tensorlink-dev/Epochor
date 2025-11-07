@@ -11,7 +11,7 @@ import random
 import shutil
 import socket
 import time
-from typing import Any, Dict, Iterator, Tuple
+from typing import Any, Callable, Dict, Iterator, Iterable, Tuple
 
 import numpy as np
 import torch
@@ -92,6 +92,13 @@ class _ToyDataset(torch.utils.data.Dataset):
         }
 
 
+def _ensure_float32_array(value: Any, *, name: str) -> np.ndarray:
+    array = np.asarray(value, dtype="float32")
+    if array.size == 0:
+        raise ValueError(f"Value for '{name}' produced an empty array")
+    return array
+
+
 class _ArrayDataset(torch.utils.data.Dataset):
     """Dataset backed by in-memory arrays loaded from disk."""
 
@@ -115,6 +122,53 @@ class _ArrayDataset(torch.utils.data.Dataset):
             "x": torch.from_numpy(self.X[index]),
             "y": torch.from_numpy(self.y[index]),
         }
+
+
+class _HFStreamingIterableDataset(torch.utils.data.IterableDataset):
+    """Iterable dataset that streams samples from the Hugging Face Hub."""
+
+    def __init__(
+        self,
+        loader: Callable[[], Iterable[Dict[str, Any]]],
+        *,
+        input_key: str,
+        target_key: str,
+        streaming: bool,
+    ) -> None:
+        super().__init__()
+        self._loader = loader
+        self._input_key = input_key
+        self._target_key = target_key
+        self._streaming = streaming
+
+    def _convert(self, sample: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        if self._input_key not in sample:
+            raise KeyError(f"Missing '{self._input_key}' key in Hugging Face sample")
+        if self._target_key not in sample:
+            raise KeyError(f"Missing '{self._target_key}' key in Hugging Face sample")
+
+        x = _ensure_float32_array(sample[self._input_key], name=self._input_key)
+        y = _ensure_float32_array(sample[self._target_key], name=self._target_key)
+        x = x.reshape(-1).astype("float32")
+        y = y.reshape(-1).astype("float32")
+
+        return {
+            "x": torch.from_numpy(x),
+            "y": torch.from_numpy(y),
+        }
+
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
+        def _iterate_once() -> Iterator[Dict[str, torch.Tensor]]:
+            dataset_iterable = self._loader()
+            for sample in dataset_iterable:
+                yield self._convert(sample)
+
+        if not self._streaming:
+            yield from _iterate_once()
+            return
+
+        while True:
+            yield from _iterate_once()
 
 
 def _load_dataset_from_file(path: str) -> torch.utils.data.Dataset:
@@ -144,7 +198,76 @@ def _load_dataset_from_file(path: str) -> torch.utils.data.Dataset:
     return _ArrayDataset(np.asarray(x), np.asarray(y))
 
 
+def _build_hf_streaming_dataset(cfg: Dict[str, Any]) -> torch.utils.data.IterableDataset:
+    try:
+        from datasets import load_dataset  # type: ignore
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise RuntimeError(
+            "datasets package is required to stream Hugging Face datasets"
+        ) from exc
+
+    repo_name = cfg.get("hf_dataset_repo") or cfg.get("hf_dataset_name")
+    if not isinstance(repo_name, str) or not repo_name:
+        raise ValueError("cfg must define 'hf_dataset_repo' or 'hf_dataset_name'")
+
+    split = cfg.get("hf_dataset_split", "train")
+    if not isinstance(split, str) or not split:
+        raise ValueError("cfg['hf_dataset_split'] must be a non-empty string")
+
+    streaming = _coerce_bool(cfg.get("hf_dataset_streaming", True), True)
+
+    dataset_kwargs: Dict[str, Any] = dict(cfg.get("hf_dataset_kwargs") or {})
+    config_name = cfg.get("hf_dataset_config")
+    if isinstance(config_name, str) and config_name:
+        dataset_kwargs["name"] = config_name
+
+    data_files = cfg.get("hf_dataset_data_files")
+    if data_files:
+        dataset_kwargs["data_files"] = data_files
+
+    revision = cfg.get("hf_dataset_revision")
+    if isinstance(revision, str) and revision:
+        dataset_kwargs["revision"] = revision
+
+    token_env = cfg.get("hf_dataset_token_env")
+    token_value = None
+    if isinstance(token_env, str) and token_env:
+        token_value = os.getenv(token_env)
+        if token_value is None:
+            raise RuntimeError(
+                f"Environment variable '{token_env}' required for Hugging Face dataset access"
+            )
+
+    explicit_token = cfg.get("hf_dataset_token")
+    if isinstance(explicit_token, str) and explicit_token:
+        token_value = explicit_token
+
+    if token_value:
+        dataset_kwargs["token"] = token_value
+
+    def _loader() -> Iterable[Dict[str, Any]]:
+        return load_dataset(repo_name, split=split, streaming=streaming, **dataset_kwargs)
+
+    input_key = cfg.get("hf_input_key", "x")
+    target_key = cfg.get("hf_target_key", "y")
+    if not isinstance(input_key, str) or not input_key:
+        raise ValueError("cfg['hf_input_key'] must be a non-empty string")
+    if not isinstance(target_key, str) or not target_key:
+        raise ValueError("cfg['hf_target_key'] must be a non-empty string")
+
+    return _HFStreamingIterableDataset(
+        _loader,
+        input_key=input_key,
+        target_key=target_key,
+        streaming=streaming,
+    )
+
+
 def _build_dataset(cfg: Dict[str, Any], submission_dir: str) -> torch.utils.data.Dataset:
+    hf_repo = cfg.get("hf_dataset_repo") or cfg.get("hf_dataset_name")
+    if isinstance(hf_repo, str) and hf_repo:
+        return _build_hf_streaming_dataset(cfg)
+
     dataset_path = cfg.get("dataset_path")
     if isinstance(dataset_path, str) and dataset_path:
         resolved = dataset_path if os.path.isabs(dataset_path) else os.path.join(submission_dir, dataset_path)
@@ -158,14 +281,41 @@ def _build_dataset(cfg: Dict[str, Any], submission_dir: str) -> torch.utils.data
 
 def _get_dataloader(cfg: Dict[str, Any], dataset: torch.utils.data.Dataset) -> Iterator[Dict[str, torch.Tensor]]:
     batch_size = int(cfg.get("train_batch_size", 64))
+    if isinstance(dataset, torch.utils.data.IterableDataset):
+
+        def _iterator() -> Iterator[Dict[str, torch.Tensor]]:
+            iterator = iter(dataset)
+            attempts = 0
+            while True:
+                batch_x = []
+                batch_y = []
+                while len(batch_x) < batch_size:
+                    try:
+                        sample = next(iterator)
+                    except StopIteration:
+                        attempts += 1
+                        if attempts > 2:
+                            raise RuntimeError("Iterable dataset did not yield enough samples to form a batch")
+                        iterator = iter(dataset)
+                        continue
+                    attempts = 0
+                    batch_x.append(sample["x"].detach())
+                    batch_y.append(sample["y"].detach())
+                yield {
+                    "x": torch.stack(batch_x),
+                    "y": torch.stack(batch_y),
+                }
+
+        return _iterator()
+
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
-    def _iterator() -> Iterator[Dict[str, torch.Tensor]]:
+    def _iterator_map() -> Iterator[Dict[str, torch.Tensor]]:
         while True:
             for batch in loader:
                 yield batch
 
-    return _iterator()
+    return _iterator_map()
 
 
 def _resume_weights_if_any(model: nn.Module, cfg: Dict[str, Any]) -> None:
