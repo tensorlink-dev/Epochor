@@ -8,7 +8,7 @@ This walkthrough shows how to do a semi-live end-to-end demo: build the validato
    !git clone https://github.com/tensorlink-dev/epochor.git
    %cd epochor
    !pip install -r requirements.txt
-   !pip install chutes bittensor fastapi uvicorn apscheduler
+   !pip install chutes bittensor fastapi uvicorn apscheduler datasets
    ```
    The validator template relies on the `chutes` builder helper plus PyTorch, Safetensors, and NumPy pinned inside `DEFAULT_PIP_PACKAGES`.【F:templates/validator_training/template_builder.py†L12-L51】
 
@@ -40,7 +40,36 @@ print(chute.environment)
 This call verifies that the template copies `templates/validator_training` into `/app`, wires the `trainer_entry.run` entrypoint, and injects the `SUBMISSION_DIR`/`ARTIFACTS_DIR` environment variables expected by the sandbox.【F:templates/validator_training/template_builder.py†L30-L50】
 
 ## 3. Generate a tiny regression dataset
-Create a repeatable dataset that the sandbox can ingest. The trainer accepts `cfg["dataset_path"]` pointing to a `.npz` or `.pt` file with `x` and `y` arrays, so you can simulate a richer task than the built-in toy regression. Alternatively, you can reference a dataset hosted on the Hugging Face Hub by setting `cfg["hf_dataset_repo"]` (or `hf_dataset_name`) along with `hf_dataset_split`; the trainer will stream batches directly from the Hub using the fields `hf_input_key` (defaults to `x`) and `hf_target_key` (defaults to `y`). For high-frequency time-series datasets such as `tensorlink-dev/gifteval-iid`, enable the budgeted window streamer by providing a `cfg["hf_window_stream"]` dictionary (or `hf_window_*` overrides) to control shard fan-out, context/horizon lengths, sampling budget, and metadata emission.【F:templates/validator_training/trainer_entry.py†L118-L305】
+Create a repeatable dataset that the sandbox can ingest. The trainer accepts `cfg["dataset_path"]` pointing to a `.npz` or `.pt` file with `x` and `y` arrays, so you can simulate a richer task than the built-in toy regression. Alternatively, you can reference a dataset hosted on the Hugging Face Hub by setting `cfg["hf_dataset_repo"]` (or `hf_dataset_name`) along with `hf_dataset_split`; the trainer will stream batches directly from the Hub using the fields `hf_input_key` (defaults to `x`) and `hf_target_key` (defaults to `y`). For high-frequency time-series datasets such as `tensorlink-dev/gifteval-iid`, enable the budgeted window streamer by providing a `cfg["hf_window_stream"]` dictionary (or `hf_window_*` overrides) to control shard fan-out, context/horizon lengths, sampling budget, and metadata emission.【F:templates/validator_training/trainer_entry.py†L118-L305】 If you plan to exercise the Hugging Face streaming path, make sure the `datasets` wheel is installed (see the bootstrap cell above) and that you have access tokens for any private repositories referenced in the configuration.
+
+To quickly sanity-check the streaming mode, substitute the handcrafted dataset with the configuration below. It pulls a handful of deterministically-sampled windows from the public `tensorlink-dev/gifteval-iid` repository and proves that the chute setup can consume Hugging Face data end-to-end.
+
+```python
+cfg = {
+    "seed": 1234,
+    "train_batch_size": 16,
+    "max_steps": 25,
+    "miner_hotkey": "demo-hotkey",
+    "hf_repo_namespace": "demo-hotkey",
+    "hf_repo_name": "validator-demo",
+    "output_tag": "demo",
+    "hf_dataset_repo": "tensorlink-dev/gifteval-iid",
+    "hf_dataset_split": "train",
+    "hf_target_key": "target",
+    "hf_window_stream": {
+        "context_length": 128,
+        "forecast_horizon": 32,
+        "max_batches": 32,
+        "budget_batch_size": 16,
+        "total_shards": 64,
+        "active_shards": 2,
+        "streams_per_shard": 2,
+        "sample_fraction": 0.5,
+    },
+}
+```
+
+Running the trainer with that dictionary will download only the shards necessary for the configured budget, emit fixed-size windows, and stop once it produces roughly `max_batches * budget_batch_size` samples. Replace the handcrafted dataset snippet with this `cfg` block when you want to validate the Hugging Face integration.
 
 ```python
 %%bash
