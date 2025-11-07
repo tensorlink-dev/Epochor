@@ -92,14 +92,80 @@ class _ToyDataset(torch.utils.data.Dataset):
         }
 
 
-def _get_dataloader(cfg: Dict[str, Any]) -> Iterator[Dict[str, torch.Tensor]]:
-    batch_size = int(cfg.get("train_batch_size", 64))
+class _ArrayDataset(torch.utils.data.Dataset):
+    """Dataset backed by in-memory arrays loaded from disk."""
+
+    def __init__(self, x: np.ndarray, y: np.ndarray) -> None:
+        if x.ndim != 2:
+            raise ValueError("Expected x to have shape (n_samples, n_features)")
+        if y.ndim == 1:
+            y = y[:, None]
+        if y.ndim != 2:
+            raise ValueError("Expected y to have shape (n_samples, 1)")
+        if x.shape[0] != y.shape[0]:
+            raise ValueError("Mismatched number of samples between x and y")
+        self.X = np.asarray(x, dtype="float32")
+        self.y = np.asarray(y, dtype="float32")
+
+    def __len__(self) -> int:
+        return self.X.shape[0]
+
+    def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
+        return {
+            "x": torch.from_numpy(self.X[index]),
+            "y": torch.from_numpy(self.y[index]),
+        }
+
+
+def _load_dataset_from_file(path: str) -> torch.utils.data.Dataset:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"dataset file not found: {path}")
+
+    if path.endswith((".npz", ".npy")):
+        data = np.load(path)
+        if isinstance(data, np.ndarray):
+            raise ValueError("NumPy file must contain named arrays 'x' and 'y'")
+        x = data["x"]
+        y = data["y"]
+    elif path.endswith((".pt", ".pth")):
+        loaded = torch.load(path, map_location="cpu")
+        if isinstance(loaded, dict):
+            x = loaded.get("x")
+            y = loaded.get("y")
+        elif isinstance(loaded, (list, tuple)) and len(loaded) >= 2:
+            x, y = loaded[0], loaded[1]
+        else:
+            raise ValueError("Torch file must contain tensors 'x' and 'y'")
+        x = x.cpu().numpy() if isinstance(x, torch.Tensor) else np.asarray(x)
+        y = y.cpu().numpy() if isinstance(y, torch.Tensor) else np.asarray(y)
+    else:
+        raise ValueError("Unsupported dataset extension. Use .npz or .pt")
+
+    return _ArrayDataset(np.asarray(x), np.asarray(y))
+
+
+def _build_dataset(cfg: Dict[str, Any], submission_dir: str) -> torch.utils.data.Dataset:
+    dataset_path = cfg.get("dataset_path")
+    if isinstance(dataset_path, str) and dataset_path:
+        resolved = dataset_path if os.path.isabs(dataset_path) else os.path.join(submission_dir, dataset_path)
+        return _load_dataset_from_file(resolved)
+
+    batch_seed = int(cfg.get("seed", 0))
     input_dim = int(cfg.get("input_dim", 16))
-    seed = int(cfg.get("seed", 0))
-    dataset = _ToyDataset(n=4096, d_in=input_dim, seed=seed)
+    dataset_size = int(cfg.get("dataset_size", 4096))
+    return _ToyDataset(n=dataset_size, d_in=input_dim, seed=batch_seed)
+
+
+def _get_dataloader(cfg: Dict[str, Any], dataset: torch.utils.data.Dataset) -> Iterator[Dict[str, torch.Tensor]]:
+    batch_size = int(cfg.get("train_batch_size", 64))
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-    for batch in loader:
-        yield batch
+
+    def _iterator() -> Iterator[Dict[str, torch.Tensor]]:
+        while True:
+            for batch in loader:
+                yield batch
+
+    return _iterator()
 
 
 def _resume_weights_if_any(model: nn.Module, cfg: Dict[str, Any]) -> None:
@@ -271,11 +337,7 @@ def _loop_training(
     step = 0
 
     while step < max_steps and _elapsed_seconds(start_time) < max_seconds:
-        try:
-            batch = next(dataloader)
-        except StopIteration:
-            dataloader = _get_dataloader(cfg)
-            batch = next(dataloader)
+        batch = next(dataloader)
 
         batch = {key: tensor.to(device) for key, tensor in batch.items()}
         metrics = submission.train_step(model, batch, optimizer, step, cfg)
@@ -326,7 +388,8 @@ async def run(inputs: Dict[str, Any]) -> Dict[str, Any]:
     context_manager = _NetworkBlocker() if disable_network else contextlib.nullcontext()
     with context_manager:
         submission, model, optimizer = _load_submission_and_prepare(cfg, submission_dir, device)
-        dataloader = _get_dataloader(cfg)
+        dataset = _build_dataset(cfg, submission_dir)
+        dataloader = _get_dataloader(cfg, dataset)
         steps, best_loss, last_metrics = _loop_training(submission, model, optimizer, cfg, device, start_time, dataloader)
 
     elapsed = _elapsed_seconds(start_time)
