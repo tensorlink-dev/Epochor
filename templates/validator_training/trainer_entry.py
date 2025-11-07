@@ -5,13 +5,15 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import importlib.util
+import json
 import math
 import os
 import random
 import shutil
 import socket
 import time
-from typing import Any, Callable, Dict, Iterator, Iterable, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Iterator, Iterable, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -124,6 +126,255 @@ class _ArrayDataset(torch.utils.data.Dataset):
         }
 
 
+def _finite_float_sequence(values: Iterable[float]) -> np.ndarray:
+    sequence = np.asarray(list(values), dtype="float32").reshape(-1)
+    if not np.isfinite(sequence).all():
+        sequence = sequence[np.isfinite(sequence)]
+    return sequence
+
+
+def _sliding_windows_1d(
+    series: np.ndarray, context: int, horizon: int, stride: int
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    series = np.asarray(series, dtype="float32").reshape(-1)
+    required = context + horizon
+    if series.size < required:
+        return None, None
+    window_count = 1 + (series.size - required) // max(stride, 1)
+    step = series.strides[0]
+    view = np.lib.stride_tricks.as_strided(
+        series,
+        shape=(window_count, required),
+        strides=(stride * step, step),
+    )
+    return view[:, :context], view[:, context:]
+
+
+def _stable_row_identifier(row: Dict[str, Any], *, target_key: str) -> str:
+    candidate_keys = ("id", "uid", "series_id", "start", "timestamp")
+    for key in candidate_keys:
+        value = row.get(key)
+        if value is not None:
+            return f"{key}:{value}"
+    target = row.get(target_key)
+    if target is not None:
+        array = np.asarray(target, dtype="float32").reshape(-1)
+        head = np.nan_to_num(array[:64], nan=0.0, posinf=1e38, neginf=-1e38)
+        digest = hashlib.blake2b(head.tobytes(), digest_size=12).hexdigest()
+        return f"len={array.size}|head64={digest}"
+    return json.dumps(row, sort_keys=True, default=str, separators=(",", ":"))
+
+
+def _unit_interval_hash(*parts: str) -> float:
+    digest = hashlib.blake2b("|".join(parts).encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big") / 2**64
+
+
+def _deterministic_row_inclusion(
+    row_key: str, probability: float, seed: int, epoch: int
+) -> bool:
+    if probability >= 1.0:
+        return True
+    if probability <= 0.0:
+        return False
+    return _unit_interval_hash("row", row_key, str(seed), str(epoch)) < probability
+
+
+def _deterministic_window_indices(
+    total: int,
+    sample_size: int,
+    seed: int,
+    epoch: int,
+    row_key: str,
+    *,
+    with_replacement: bool,
+) -> List[int]:
+    if sample_size >= total and not with_replacement:
+        return list(range(total))
+    rng_seed = int(_unit_interval_hash("window", row_key, str(seed), str(epoch)) * (2**31 - 1))
+    rng = random.Random(rng_seed)
+    if with_replacement:
+        return [rng.randrange(total) for _ in range(sample_size)]
+    return rng.sample(range(total), sample_size)
+
+
+def _select_active_shards(total: int, active: int, seed: int, epoch: int) -> List[int]:
+    count = max(1, min(active, total))
+    rng_seed = int(_unit_interval_hash("shards", str(seed), str(epoch)) * (2**31 - 1))
+    rng = random.Random(rng_seed)
+    indices = list(range(total))
+    rng.shuffle(indices)
+    return sorted(indices[:count])
+
+
+@dataclass
+class _HFWindowStreamConfig:
+    dataset_repo: str
+    split: str
+    dataset_config: Optional[str]
+    dataset_kwargs: Dict[str, Any]
+    streaming: bool
+    max_batches: int
+    budget_batch_size: int
+    total_shards: int
+    active_shards: int
+    streams_per_shard: int
+    seed: int
+    sample_fraction: float
+    windows_per_series: Optional[int]
+    windows_with_replacement: bool
+    context_length: int
+    forecast_horizon: int
+    stride: int
+    min_series_length: Optional[int]
+    enable_worker_sharding: bool
+    include_metadata: bool
+    row_identity_keys: Optional[List[str]]
+    target_key: str
+
+
+class _HFWindowedTimeseriesStream(torch.utils.data.IterableDataset):
+    """Stream Hugging Face timeseries windows under a deterministic budget."""
+
+    def __init__(self, settings: _HFWindowStreamConfig) -> None:
+        super().__init__()
+        self._settings = settings
+        self._epoch = 0
+        self._base_iterable: Optional[Any] = None
+        self._refresh_base(seed_offset=0)
+
+    def _refresh_base(self, seed_offset: int) -> None:
+        try:
+            from datasets import interleave_datasets, load_dataset  # type: ignore
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "datasets package is required for Hugging Face streaming"
+            ) from exc
+
+        cfg = self._settings
+        streams: List[Any] = []
+        active = _select_active_shards(
+            cfg.total_shards, cfg.active_shards, cfg.seed, seed_offset
+        )
+        for shard_index in active:
+            for shard_replica in range(cfg.streams_per_shard):
+                dataset = load_dataset(
+                    cfg.dataset_repo,
+                    name=cfg.dataset_config,
+                    split=cfg.split,
+                    streaming=cfg.streaming,
+                    **cfg.dataset_kwargs,
+                )
+                dataset = dataset.shard(
+                    num_shards=cfg.total_shards,
+                    index=shard_index,
+                    contiguous=True,
+                )
+                streams.append(dataset)
+        if not streams:
+            raise RuntimeError(
+                "No Hugging Face shards resolved for streaming dataset"
+            )
+        self._base_iterable = interleave_datasets(streams, seed=cfg.seed + seed_offset)
+
+    def set_epoch(self, epoch: int) -> None:
+        self._epoch = int(epoch)
+        self._refresh_base(seed_offset=self._epoch)
+
+    @property
+    def windows_budget(self) -> int:
+        cfg = self._settings
+        return int(cfg.max_batches * cfg.budget_batch_size)
+
+    def _maybe_shard_for_worker(self, dataset: Any) -> Any:
+        if not self._settings.enable_worker_sharding:
+            return dataset
+        info = torch.utils.data.get_worker_info()
+        if info and info.num_workers > 1:
+            dataset = dataset.shard(
+                num_shards=info.num_workers,
+                index=info.id,
+                contiguous=False,
+            )
+        return dataset
+
+    def __iter__(self) -> Iterator[Dict[str, Any]]:
+        if self._base_iterable is None:
+            raise RuntimeError("Hugging Face stream was not initialised")
+
+        cfg = self._settings
+        epoch = self._epoch
+        dataset = self._maybe_shard_for_worker(self._base_iterable)
+
+        emitted = 0
+        budget = self.windows_budget
+        target_key = cfg.target_key
+
+        for row in dataset:
+            if emitted >= budget:
+                break
+
+            target = row.get(target_key)
+            if target is None:
+                continue
+
+            identifier_keys = cfg.row_identity_keys or []
+            row_key = _stable_row_identifier(row, target_key=target_key)
+            if identifier_keys:
+                for key in identifier_keys:
+                    value = row.get(key)
+                    if value is not None:
+                        row_key = f"{key}:{value}"
+                        break
+
+            if not _deterministic_row_inclusion(
+                row_key, cfg.sample_fraction, cfg.seed, epoch
+            ):
+                continue
+
+            series = _finite_float_sequence(target)
+            if cfg.min_series_length is not None and series.size < cfg.min_series_length:
+                continue
+
+            contexts, horizons = _sliding_windows_1d(
+                series, cfg.context_length, cfg.forecast_horizon, cfg.stride
+            )
+            if contexts is None or horizons is None:
+                continue
+
+            window_count = contexts.shape[0]
+            if window_count <= 0:
+                continue
+
+            if cfg.windows_per_series and cfg.windows_per_series > 0:
+                sample_count = min(cfg.windows_per_series, window_count)
+                indices = _deterministic_window_indices(
+                    window_count,
+                    sample_count,
+                    cfg.seed,
+                    epoch,
+                    row_key,
+                    with_replacement=cfg.windows_with_replacement,
+                )
+            else:
+                indices = range(window_count)
+
+            for idx in indices:
+                if emitted >= budget:
+                    break
+
+                features = np.ascontiguousarray(contexts[idx])
+                targets = np.ascontiguousarray(horizons[idx])
+                item: Dict[str, Any] = {
+                    "x": torch.from_numpy(features),
+                    "y": torch.from_numpy(targets),
+                }
+                if cfg.include_metadata:
+                    metadata = {key: value for key, value in row.items() if key != target_key}
+                    item["meta"] = metadata
+                yield item
+                emitted += 1
+
 class _HFStreamingIterableDataset(torch.utils.data.IterableDataset):
     """Iterable dataset that streams samples from the Hugging Face Hub."""
 
@@ -198,6 +449,116 @@ def _load_dataset_from_file(path: str) -> torch.utils.data.Dataset:
     return _ArrayDataset(np.asarray(x), np.asarray(y))
 
 
+def _maybe_window_stream_config(
+    cfg: Dict[str, Any],
+    *,
+    repo_name: str,
+    split: str,
+    streaming: bool,
+    dataset_kwargs: Dict[str, Any],
+) -> Optional[_HFWindowStreamConfig]:
+    window_section = cfg.get("hf_window_stream")
+    has_prefixed_keys = any(key.startswith("hf_window_") for key in cfg)
+    if not isinstance(window_section, dict) and not has_prefixed_keys:
+        return None
+
+    settings: Dict[str, Any] = {}
+    if isinstance(window_section, dict):
+        settings.update(window_section)
+
+    prefix = "hf_window_"
+    for key, value in cfg.items():
+        if key.startswith(prefix):
+            settings[key[len(prefix) :]] = value
+
+    dataset_config = settings.get("dataset_config") or cfg.get("hf_dataset_config")
+    total_shards = int(settings.get("total_shards", settings.get("total_slices", 64)))
+    active_shards = int(settings.get("active_shards", settings.get("active_slices", 2)))
+    streams_per_shard = int(
+        settings.get("streams_per_shard", settings.get("streams_per_slice", 2))
+    )
+    budget_batch_size = int(
+        settings.get("budget_batch_size", settings.get("batch_size_for_budget", 32))
+    )
+    max_batches = int(settings.get("max_batches", 1000))
+    sample_fraction = float(settings.get("sample_fraction", 1.0))
+    windows_per_series_val = settings.get("windows_per_series")
+    if windows_per_series_val is None:
+        windows_per_series = None
+    else:
+        windows_per_series = int(windows_per_series_val)
+    context_length = int(settings.get("context_length", settings.get("ctx", 256)))
+    forecast_horizon = int(
+        settings.get("forecast_horizon", settings.get("hor", 64))
+    )
+    stride = int(settings.get("stride", 1))
+    min_series_length_val = settings.get("min_series_length", settings.get("min_series_len"))
+    min_series_length = int(min_series_length_val) if min_series_length_val is not None else None
+    seed = int(settings.get("seed", cfg.get("seed", 0)))
+    enable_worker_sharding = _coerce_bool(
+        settings.get("enable_worker_sharding", True), True
+    )
+    include_metadata = _coerce_bool(
+        settings.get("include_metadata", settings.get("return_meta", False)), False
+    )
+    windows_with_replacement = _coerce_bool(
+        settings.get("window_with_replacement", False), False
+    )
+
+    row_identity_keys_val = settings.get("row_identity_keys")
+    if isinstance(row_identity_keys_val, (list, tuple)):
+        row_identity_keys = [str(key) for key in row_identity_keys_val]
+    elif isinstance(row_identity_keys_val, str):
+        row_identity_keys = [row_identity_keys_val]
+    else:
+        row_identity_keys = None
+
+    total_shards = max(1, total_shards)
+    active_shards = max(1, min(active_shards, total_shards))
+    streams_per_shard = max(1, streams_per_shard)
+    budget_batch_size = max(1, budget_batch_size)
+    max_batches = max(1, max_batches)
+    sample_fraction = max(0.0, min(1.0, sample_fraction))
+    if windows_per_series is not None:
+        windows_per_series = max(1, windows_per_series)
+    context_length = max(1, context_length)
+    forecast_horizon = max(1, forecast_horizon)
+    stride = max(1, stride)
+    if min_series_length is not None:
+        min_series_length = max(1, min_series_length)
+
+    target_key = str(settings.get("target_key") or cfg.get("hf_target_key") or "target")
+
+    return _HFWindowStreamConfig(
+        dataset_repo=str(settings.get("dataset_repo") or repo_name),
+        split=str(settings.get("split") or split),
+        dataset_config=(
+            str(dataset_config)
+            if isinstance(dataset_config, str) and dataset_config
+            else None
+        ),
+        dataset_kwargs=dict(dataset_kwargs),
+        streaming=streaming,
+        max_batches=max_batches,
+        budget_batch_size=budget_batch_size,
+        total_shards=total_shards,
+        active_shards=active_shards,
+        streams_per_shard=streams_per_shard,
+        seed=seed,
+        sample_fraction=sample_fraction,
+        windows_per_series=windows_per_series,
+        windows_with_replacement=windows_with_replacement,
+        context_length=context_length,
+        forecast_horizon=forecast_horizon,
+        stride=stride,
+        min_series_length=min_series_length,
+        enable_worker_sharding=enable_worker_sharding,
+        include_metadata=include_metadata,
+        row_identity_keys=row_identity_keys,
+        target_key=target_key,
+    )
+
+
 def _build_hf_streaming_dataset(cfg: Dict[str, Any]) -> torch.utils.data.IterableDataset:
     try:
         from datasets import load_dataset  # type: ignore
@@ -208,9 +569,21 @@ def _build_hf_streaming_dataset(cfg: Dict[str, Any]) -> torch.utils.data.Iterabl
 
     repo_name = cfg.get("hf_dataset_repo") or cfg.get("hf_dataset_name")
     if not isinstance(repo_name, str) or not repo_name:
+        nested = cfg.get("hf_window_stream")
+        if isinstance(nested, dict):
+            candidate = nested.get("dataset_repo") or nested.get("dataset")
+            if isinstance(candidate, str) and candidate:
+                repo_name = candidate
+    if not isinstance(repo_name, str) or not repo_name:
         raise ValueError("cfg must define 'hf_dataset_repo' or 'hf_dataset_name'")
 
     split = cfg.get("hf_dataset_split", "train")
+    if not isinstance(split, str) or not split:
+        nested = cfg.get("hf_window_stream")
+        if isinstance(nested, dict):
+            candidate_split = nested.get("split")
+            if isinstance(candidate_split, str) and candidate_split:
+                split = candidate_split
     if not isinstance(split, str) or not split:
         raise ValueError("cfg['hf_dataset_split'] must be a non-empty string")
 
@@ -244,6 +617,16 @@ def _build_hf_streaming_dataset(cfg: Dict[str, Any]) -> torch.utils.data.Iterabl
 
     if token_value:
         dataset_kwargs["token"] = token_value
+
+    window_settings = _maybe_window_stream_config(
+        cfg,
+        repo_name=repo_name,
+        split=split,
+        streaming=streaming,
+        dataset_kwargs=dataset_kwargs,
+    )
+    if window_settings is not None:
+        return _HFWindowedTimeseriesStream(window_settings)
 
     def _loader() -> Iterable[Dict[str, Any]]:
         return load_dataset(repo_name, split=split, streaming=streaming, **dataset_kwargs)
@@ -286,9 +669,16 @@ def _get_dataloader(cfg: Dict[str, Any], dataset: torch.utils.data.Dataset) -> I
         def _iterator() -> Iterator[Dict[str, torch.Tensor]]:
             iterator = iter(dataset)
             attempts = 0
+            epoch = 0
+            if hasattr(dataset, "set_epoch"):
+                try:
+                    dataset.set_epoch(epoch)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
             while True:
                 batch_x = []
                 batch_y = []
+                batch_meta: List[Any] = []
                 while len(batch_x) < batch_size:
                     try:
                         sample = next(iterator)
@@ -296,15 +686,28 @@ def _get_dataloader(cfg: Dict[str, Any], dataset: torch.utils.data.Dataset) -> I
                         attempts += 1
                         if attempts > 2:
                             raise RuntimeError("Iterable dataset did not yield enough samples to form a batch")
+                        epoch += 1
+                        if hasattr(dataset, "set_epoch"):
+                            try:
+                                dataset.set_epoch(epoch)  # type: ignore[attr-defined]
+                            except Exception:
+                                pass
                         iterator = iter(dataset)
                         continue
                     attempts = 0
-                    batch_x.append(sample["x"].detach())
-                    batch_y.append(sample["y"].detach())
-                yield {
+                    x_tensor = torch.as_tensor(sample["x"], dtype=torch.float32)
+                    y_tensor = torch.as_tensor(sample["y"], dtype=torch.float32)
+                    batch_x.append(x_tensor)
+                    batch_y.append(y_tensor)
+                    if "meta" in sample:
+                        batch_meta.append(sample["meta"])
+                batch = {
                     "x": torch.stack(batch_x),
                     "y": torch.stack(batch_y),
                 }
+                if batch_meta:
+                    batch["meta"] = batch_meta
+                yield batch
 
         return _iterator()
 
