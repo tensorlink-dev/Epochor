@@ -31,17 +31,67 @@ class TrainingSummary:
 
 
 def _resolve_device(preferred: Optional[Any] = None) -> torch.device:
+    """Return the requested device, defaulting to CUDA when available."""
+
     if preferred is not None:
         return torch.device(preferred)
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def _move_batch_to_device(batch: Mapping[str, torch.Tensor], device: torch.device) -> Dict[str, torch.Tensor]:
+    """Move all tensors in ``batch`` to ``device``."""
+
     return {key: tensor.to(device) for key, tensor in batch.items()}
 
 
+def _count_params(model: nn.Module) -> int:
+    """Return the total number of parameters in ``model``."""
+
+    return sum(p.numel() for p in model.parameters())
+
+
+def _validate_model_contract(
+    submission: MinerSubmissionProtocol,
+    cfg: Dict[str, Any],
+    train_loader_factory: TrainLoaderFactory,
+    device: torch.device,
+) -> nn.Module:
+    """Build and validate a submission model against validator batch shapes.
+
+    This constructs the model, moves it to ``device``, performs a dummy forward
+    pass using a batch from ``train_loader_factory(cfg)``, and ensures the
+    predicted output matches ``batch['y']`` exactly.
+    """
+
+    dummy_iter = _iterate_batches(train_loader_factory, cfg)
+    dummy_batch = next(dummy_iter)
+    if "x" not in dummy_batch or "y" not in dummy_batch:
+        raise KeyError("Training batches must contain 'x' and 'y' entries")
+
+    model = submission.build_model(cfg).to(device)
+    model.eval()
+
+    batch_on_device = _move_batch_to_device(dummy_batch, device)
+    with torch.no_grad():
+        preds = model(batch_on_device["x"])
+
+    expected_shape = batch_on_device["y"].shape
+    if not hasattr(preds, "shape"):
+        raise ValueError("Model forward pass must return a tensor-like object with a shape")
+    if preds.shape != expected_shape:
+        raise ValueError(
+            f"Model output shape {tuple(preds.shape)} does not match expected {tuple(expected_shape)}"
+        )
+
+    return model
+
+
 def load_miner_module(submission_path: str) -> MinerSubmissionProtocol:
-    """Dynamically load a miner submission from a python file."""
+    """Dynamically load a miner submission from a python file.
+
+    The module must expose ``get_submission()`` which returns an instance of
+    :class:`MinerSubmissionProtocol`.
+    """
 
     spec = importlib.util.spec_from_file_location("miner_submission", submission_path)
     if spec is None or spec.loader is None:  # pragma: no cover - importlib safeguard
@@ -86,8 +136,19 @@ def run_training(
     if hard_cap <= 0:
         raise ValueError("Training must run for at least one step")
 
-    model = submission.build_model(cfg).to(device)
+    model = _validate_model_contract(submission, cfg, train_loader_factory, device)
+
+    max_params = int(cfg.get("max_params", 10_000_000))
+    if max_params <= 0:
+        raise ValueError("max_params must be positive")
+    num_params = _count_params(model)
+    if num_params > max_params:
+        raise ValueError(
+            f"Model has {num_params} parameters which exceeds allowed maximum of {max_params}"
+        )
+
     optimizer = submission.build_optimizer(model, cfg)
+    model.train()
 
     max_epochs = cfg.get("max_epochs")
     if max_epochs is not None:
@@ -103,6 +164,7 @@ def run_training(
         for batch in _iterate_batches(train_loader_factory, cfg):
             batch_on_device = _move_batch_to_device(batch, device)
             before_mem = _capture_allocated(device)
+            # Hook for future wall-clock enforcement could be placed here.
             metrics = submission.train_step(model, batch_on_device, optimizer, num_steps, cfg)
             if not isinstance(metrics, MutableMapping):
                 raise TypeError("train_step must return a mapping of metrics")
@@ -145,6 +207,8 @@ def run_training(
 
 
 def _capture_allocated(device: torch.device) -> Optional[int]:
+    """Return current CUDA memory allocation for ``device`` if available."""
+
     if device.type != "cuda":
         return None
     try:  # pragma: no cover - depends on GPU availability
@@ -155,6 +219,8 @@ def _capture_allocated(device: torch.device) -> Optional[int]:
 
 
 def _iterate_batches(factory: Callable[[Dict[str, Any]], Iterable[Batch]], cfg: Dict[str, Any]) -> Iterator[Batch]:
+    """Yield batches from ``factory(cfg)`` ensuring at least one batch exists."""
+
     iterable = factory(cfg)
     iterator = iter(iterable)
     try:
