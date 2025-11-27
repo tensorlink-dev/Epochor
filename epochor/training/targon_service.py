@@ -1,6 +1,7 @@
 """Targon app exposing validator-owned training and evaluation."""
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -65,11 +66,23 @@ def submit_and_train(payload: dict) -> dict:
     }
 
 
+async def run_single_training(submission_code: str, cfg: dict) -> dict:
+    """Run one isolated training job using a fresh ephemeral app session.
+
+    Each ``async with app.run()`` block starts a clean execution environment;
+    calling this helper multiple times guarantees no Python state is shared
+    across runs.
+    """
+
+    async with app.run():
+        return await submit_and_train.remote({"submission_code": submission_code, "cfg": cfg})
+
+
 @app.local_entrypoint()
 def main(submission_file: str, cfg_path: str = "config.json") -> dict:
     """Local helper to trigger remote training for manual testing."""
 
     submission_code = Path(submission_file).read_text(encoding="utf-8")
     cfg = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
-    return submit_and_train.remote({"submission_code": submission_code, "cfg": cfg})
+    return asyncio.run(run_single_training(submission_code, cfg))
 
