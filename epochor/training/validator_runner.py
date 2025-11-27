@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, MutableMapp
 import torch
 from torch import nn
 
+from .data_and_eval import split_context_and_target
 from .validator_contract import MinerSubmissionProtocol
 
 Batch = Mapping[str, torch.Tensor]
@@ -60,11 +61,10 @@ def _validate_model_contract(
     """Build and validate a submission model against validator batch shapes.
 
     This constructs the model, moves it to ``device``, performs a dummy forward
-    pass using a batch that contains both ``x`` and ``y`` (preferring training
-    data when available), and ensures the predicted output matches the expected
-    ``y`` shape exactly. Training batches may omit ``y`` to allow miners to train
-    however they choose, but at least one of the train/validation loaders must
-    expose it for contract checking.
+    pass using a batch that provides a concatenated sequence ``x`` of length
+    ``context_length + prediction_length``, and ensures the predicted output
+    matches the derived target (the final ``prediction_length`` timesteps) shape
+    exactly.
     """
 
     train_iter = _iterate_batches(train_loader_factory, cfg)
@@ -72,24 +72,22 @@ def _validate_model_contract(
     if "x" not in train_batch:
         raise KeyError("Training batches must contain an 'x' entry")
 
-    contract_batch = train_batch
-    expected_y = train_batch.get("y")
-    if expected_y is None:
+    try:
+        expected_context, expected_target = split_context_and_target(train_batch["x"], cfg)
+    except Exception:
         val_iter = _iterate_batches(val_loader_factory, cfg)
         val_batch = next(val_iter)
-        if "x" not in val_batch or "y" not in val_batch:
-            raise KeyError("Validation batches must contain 'x' and 'y' entries for contract checks")
-        contract_batch = val_batch
-        expected_y = val_batch["y"]
+        if "x" not in val_batch:
+            raise KeyError("Validation batches must contain an 'x' entry for contract checks")
+        expected_context, expected_target = split_context_and_target(val_batch["x"], cfg)
 
     model = submission.build_model(cfg).to(device)
     model.eval()
 
-    batch_on_device = _move_batch_to_device(contract_batch, device)
     with torch.no_grad():
-        preds = model(batch_on_device["x"])
+        preds = model(expected_context.to(device))
 
-    expected_shape = expected_y.shape
+    expected_shape = expected_target.shape
     if not hasattr(preds, "shape"):
         raise ValueError("Model forward pass must return a tensor-like object with a shape")
     if preds.shape != expected_shape:

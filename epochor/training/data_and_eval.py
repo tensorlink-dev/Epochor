@@ -2,13 +2,45 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Sequence
+from typing import Any, Dict, Iterable, Mapping, Sequence, Tuple
 
 import torch
 
 from epochor.validation.validation import score_time_series_model
 
 Batch = Mapping[str, torch.Tensor]
+
+
+def split_context_and_target(sequence: torch.Tensor, cfg: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Split a concatenated sequence into context and target segments.
+
+    Expects ``sequence`` to have shape ``(batch, total_length, ...)`` where
+    ``total_length`` is ``context_length + prediction_length``. The context is
+    returned as the first ``context_length`` timesteps and the target as the
+    following ``prediction_length`` timesteps.
+    """
+
+    if sequence.dim() < 2:
+        raise ValueError("Expected sequence tensor with shape (batch, time, ...)")
+
+    try:
+        context_length = int(cfg["context_length"])
+        prediction_length = int(cfg["prediction_length"])
+    except KeyError as exc:  # pragma: no cover - configuration validation
+        raise KeyError("cfg must include 'context_length' and 'prediction_length'") from exc
+
+    if context_length <= 0 or prediction_length <= 0:
+        raise ValueError("context_length and prediction_length must be positive")
+
+    required = context_length + prediction_length
+    if sequence.shape[1] < required:
+        raise ValueError(
+            f"Sequence length {sequence.shape[1]} is shorter than required {required}"
+        )
+
+    context = sequence[:, :context_length]
+    target = sequence[:, context_length : context_length + prediction_length]
+    return context, target
 
 
 def _ensure_batches(batches: Sequence[Mapping[str, torch.Tensor]]) -> Sequence[Mapping[str, torch.Tensor]]:
@@ -77,8 +109,13 @@ def evaluate_fn(
     with torch.no_grad():
         for batch in val_loader:
             batch_on_device = {key: tensor.to(device) for key, tensor in batch.items()}
-            preds = model(batch_on_device["x"])
-            loss = torch.nn.functional.mse_loss(preds, batch_on_device["y"])
+            context, target = split_context_and_target(batch_on_device["x"], cfg)
+            preds = model(context)
+            if preds.shape != target.shape:
+                raise ValueError(
+                    f"Validation forward shape {tuple(preds.shape)} does not match target {tuple(target.shape)}"
+                )
+            loss = torch.nn.functional.mse_loss(preds, target)
             total_loss += float(loss.item())
             count += 1
     metrics["val_loss"] = total_loss / max(count, 1)
@@ -100,4 +137,4 @@ def evaluate_fn(
     return metrics
 
 
-__all__ = ["make_train_loader", "make_val_loader", "evaluate_fn"]
+__all__ = ["make_train_loader", "make_val_loader", "evaluate_fn", "split_context_and_target"]

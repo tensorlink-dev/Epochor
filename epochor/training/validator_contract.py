@@ -22,10 +22,12 @@ class MinerSubmissionProtocol:
         Expectations:
         - The implementation must be deterministic given ``cfg`` (and any
           externally provided seed) so the validator can reproduce results.
-        - The returned model must accept inputs shaped exactly like
-          ``batch["x"]`` from the validator-provided dataloaders.
-        - The forward pass must produce outputs whose shape matches
-          ``batch["y"]`` exactly.
+        - The returned model must accept context inputs shaped like the first
+          ``cfg['context_length']`` timesteps of ``batch["x"]`` from the
+          validator-provided dataloaders.
+        - The forward pass must produce outputs whose shape matches the final
+          ``cfg['prediction_length']`` timesteps of ``batch["x"]`` (the implied
+          target segment).
         """
 
         raise NotImplementedError
@@ -52,9 +54,11 @@ class MinerSubmissionProtocol:
         """Execute one validator-provided batch and return training metrics.
 
         Expectations:
-        - The validator provides ``batch['x']`` and ``batch['y']`` on the
-          chosen device. The submission must respect those shapes without
-          modification.
+        - The validator provides ``batch['x']`` containing a concatenated
+          sequence of length ``context_length + prediction_length`` on the
+          chosen device. Submissions must reshape/split this sequence to derive
+          their targets (e.g., first context_length timesteps as input and the
+          remaining prediction_length timesteps as targets).
         - Implementations must perform a full training update: set the model to
           training mode, run forward + loss + backward, and step the optimizer.
         - The returned mapping **must** include ``"loss"`` as a scalar float
