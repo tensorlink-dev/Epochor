@@ -220,7 +220,7 @@ def _make_loader_factory(batches: List[Any]):
 
 
 def _make_evaluate_fn(samples: List[Any], eval_tasks: List[Any], seed: int):
-    def evaluate(model, loader, device, cfg):  # noqa: D401 - matching protocol
+    def evaluate(submission, model, loader, device, cfg):  # noqa: D401 - matching protocol
         for _ in loader:
             pass
         score, score_details = score_time_series_model(

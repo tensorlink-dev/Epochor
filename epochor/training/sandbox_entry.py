@@ -123,7 +123,7 @@ def _make_evaluate_fn(
     samples: Sequence[Sequence[Mapping[str, torch.Tensor]]],
     eval_tasks: Sequence[Any],
     seed: int,
-) -> Callable[[Any, Iterable[Mapping[str, torch.Tensor]], torch.device, Dict[str, Any]], Dict[str, Any]]:
+) -> Callable[[Any, Any, Iterable[Mapping[str, torch.Tensor]], torch.device, Dict[str, Any]], Dict[str, Any]]:
     materialized_samples: list[list[Mapping[str, torch.Tensor]]] = []
     for task_batches in samples:
         copied_batches: list[Mapping[str, torch.Tensor]] = []
@@ -132,6 +132,7 @@ def _make_evaluate_fn(
         materialized_samples.append(copied_batches)
 
     def _evaluate(
+        submission: Any,
         model: Any,
         val_loader: Iterable[Mapping[str, torch.Tensor]],
         device: torch.device,
@@ -157,6 +158,10 @@ def _write_summary(path: Path, summary: TrainingSummary) -> Dict[str, Any]:
         "val_metrics": _normalize_values(summary.val_metrics),
         "num_steps": summary.num_steps,
         "device": summary.device,
+        "submission_id": summary.submission_id,
+        "run_id": summary.run_id,
+        "artifact_path": summary.artifact_path,
+        "artifact_uri": summary.artifact_uri,
     }
     with path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)
@@ -190,6 +195,10 @@ def _materialize_artifacts(
         "val_metrics": summary_payload.get("val_metrics", {}),
         "num_steps": summary_payload.get("num_steps", 0),
         "device": summary_payload.get("device"),
+        "submission_id": summary_payload.get("submission_id"),
+        "run_id": summary_payload.get("run_id"),
+        "artifact_path": summary_payload.get("artifact_path"),
+        "artifact_uri": summary_payload.get("artifact_uri"),
     }
     with metrics_path.open("w", encoding="utf-8") as fh:
         json.dump(metrics_payload, fh, indent=2)

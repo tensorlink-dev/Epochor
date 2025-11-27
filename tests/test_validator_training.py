@@ -29,6 +29,30 @@ class _ToySubmission(MinerSubmissionProtocol):
         self.optimizer = torch.optim.SGD(model.parameters(), lr=float(cfg.get("lr", 0.1)))
         return self.optimizer
 
+    def process_data(self, batch: Dict[str, torch.Tensor], cfg: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        context_len = int(cfg["context_length"])
+        pred_len = int(cfg["prediction_length"])
+        quantiles = cfg.get("quantiles") or [0.1 * i for i in range(1, 10)]
+        sequence = batch["x"]
+        context = sequence[:, :context_len]
+        target = sequence[:, context_len : context_len + pred_len].unsqueeze(-1)
+        target = target.repeat(1, 1, len(quantiles))
+        return {"inputs": context, "targets": target}
+
+    def forecast(
+        self,
+        model: nn.Module,
+        inputs: torch.Tensor,
+        cfg: Dict[str, Any],
+        *,
+        prediction_length: int | None = None,
+        quantiles=None,
+    ) -> torch.Tensor:
+        quantiles = quantiles or [0.1 * i for i in range(1, 10)]
+        pred_len = prediction_length or int(cfg["prediction_length"])
+        base = model(inputs).unsqueeze(-1)
+        return base.repeat(1, pred_len, len(quantiles))
+
     def train_step(
         self,
         model: nn.Module,
@@ -39,35 +63,45 @@ class _ToySubmission(MinerSubmissionProtocol):
     ) -> Dict[str, Any]:
         self.history.append(step_idx)
         optimizer.zero_grad(set_to_none=True)
-        preds = model(batch["x"])
-        loss = torch.nn.functional.mse_loss(preds, batch["y"])
+        processed = self.process_data(batch, cfg)
+        quantiles = cfg.get("quantiles") or [0.1 * i for i in range(1, 10)]
+        preds = model(processed["inputs"]).unsqueeze(-1).repeat(1, 1, len(quantiles))
+        loss = torch.nn.functional.mse_loss(preds, processed["targets"])
         loss.backward()
         optimizer.step()
         return {"loss": float(loss.detach())}
 
 
 def _fixed_batches(cfg: Dict[str, Any]) -> Iterable[Dict[str, torch.Tensor]]:
-    x = torch.tensor([[1.0]], dtype=torch.float32)
-    y = torch.tensor([[2.0]], dtype=torch.float32)
+    x = torch.tensor([[1.0, 2.0]], dtype=torch.float32)
     return [
-        {"x": x, "y": y},
-        {"x": x * 2, "y": y * 2},
-        {"x": x * 3, "y": y * 3},
+        {"x": x},
+        {"x": x * 2},
+        {"x": x * 3},
     ]
 
 
-def _evaluate(model: nn.Module, loader: Iterable[Dict[str, torch.Tensor]], device: torch.device, cfg: Dict[str, Any]) -> Dict[str, Any]:
+def _evaluate(
+    submission: _ToySubmission,
+    model: nn.Module,
+    loader: Iterable[Dict[str, torch.Tensor]],
+    device: torch.device,
+    cfg: Dict[str, Any],
+) -> Dict[str, Any]:
     losses: List[float] = []
+    quantiles = cfg.get("quantiles") or [0.1 * i for i in range(1, 10)]
     for batch in loader:
-        preds = model(batch["x"].to(device))
-        loss = torch.nn.functional.mse_loss(preds, batch["y"].to(device))
+        batch_on_device = {k: v.to(device) for k, v in batch.items()}
+        processed = submission.process_data(batch_on_device, cfg)
+        preds = model(processed["inputs"]).unsqueeze(-1).repeat(1, 1, len(quantiles))
+        loss = torch.nn.functional.mse_loss(preds, processed["targets"])
         losses.append(float(loss.detach().cpu()))
     return {"val_loss": sum(losses) / len(losses)}
 
 
 def test_run_training_respects_step_cap():
     submission = _ToySubmission()
-    cfg = {"max_steps": 2, "seed": 42}
+    cfg = {"max_steps": 2, "seed": 42, "context_length": 1, "prediction_length": 1}
     summary = run_training(
         submission,
         cfg,
@@ -75,6 +109,8 @@ def test_run_training_respects_step_cap():
         val_loader_factory=_fixed_batches,
         evaluate_fn=_evaluate,
         max_train_steps=MAX_TRAIN_STEPS,
+        submission_id="sub-1",
+        run_id="run-1",
     )
 
     assert isinstance(summary, TrainingSummary)
@@ -83,6 +119,8 @@ def test_run_training_respects_step_cap():
     assert "loss" in summary.train_metrics
     assert "val_loss" in summary.val_metrics
     assert isinstance(summary.model, nn.Module)
+    assert summary.submission_id == "sub-1"
+    assert summary.run_id == "run-1"
 
 
 def test_run_training_rejects_missing_loss():
@@ -91,7 +129,7 @@ def test_run_training_rejects_missing_loss():
             return {}
 
     submission = BadSubmission()
-    cfg: Dict[str, Any] = {"max_steps": 1}
+    cfg: Dict[str, Any] = {"max_steps": 1, "context_length": 1, "prediction_length": 1}
 
     try:
         run_training(
@@ -123,10 +161,23 @@ class Demo(MinerSubmissionProtocol):
     def build_optimizer(self, model: nn.Module, cfg: Dict[str, Any]) -> torch.optim.Optimizer:
         return torch.optim.SGD(model.parameters(), lr=0.1)
 
+    def process_data(self, batch, cfg):
+        quantiles = cfg.get("quantiles") or [0.1 * i for i in range(1, 10)]
+        target = batch["x"].unsqueeze(-1).repeat(1, 1, len(quantiles))
+        return {"inputs": batch["x"], "targets": target}
+
+    def forecast(self, model, inputs, cfg, *, prediction_length=None, quantiles=None):
+        quantiles = quantiles or [0.1 * i for i in range(1, 10)]
+        pred_len = prediction_length or int(cfg["prediction_length"])
+        base = model(inputs).unsqueeze(-1)
+        return base.repeat(1, pred_len, len(quantiles))
+
     def train_step(self, model, batch, optimizer, step_idx, cfg):
         optimizer.zero_grad(set_to_none=True)
-        preds = model(batch["x"])
-        loss = torch.nn.functional.mse_loss(preds, batch["y"])
+        processed = self.process_data(batch, cfg)
+        quantiles = cfg.get("quantiles") or [0.1 * i for i in range(1, 10)]
+        preds = model(processed["inputs"]).unsqueeze(-1).repeat(1, 1, len(quantiles))
+        loss = torch.nn.functional.mse_loss(preds, processed["targets"])
         loss.backward()
         optimizer.step()
         return {"loss": float(loss.detach())}
