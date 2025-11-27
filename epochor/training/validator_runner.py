@@ -54,28 +54,42 @@ def _validate_model_contract(
     submission: MinerSubmissionProtocol,
     cfg: Dict[str, Any],
     train_loader_factory: TrainLoaderFactory,
+    val_loader_factory: ValLoaderFactory,
     device: torch.device,
 ) -> nn.Module:
     """Build and validate a submission model against validator batch shapes.
 
     This constructs the model, moves it to ``device``, performs a dummy forward
-    pass using a batch from ``train_loader_factory(cfg)``, and ensures the
-    predicted output matches ``batch['y']`` exactly.
+    pass using a batch that contains both ``x`` and ``y`` (preferring training
+    data when available), and ensures the predicted output matches the expected
+    ``y`` shape exactly. Training batches may omit ``y`` to allow miners to train
+    however they choose, but at least one of the train/validation loaders must
+    expose it for contract checking.
     """
 
-    dummy_iter = _iterate_batches(train_loader_factory, cfg)
-    dummy_batch = next(dummy_iter)
-    if "x" not in dummy_batch or "y" not in dummy_batch:
-        raise KeyError("Training batches must contain 'x' and 'y' entries")
+    train_iter = _iterate_batches(train_loader_factory, cfg)
+    train_batch = next(train_iter)
+    if "x" not in train_batch:
+        raise KeyError("Training batches must contain an 'x' entry")
+
+    contract_batch = train_batch
+    expected_y = train_batch.get("y")
+    if expected_y is None:
+        val_iter = _iterate_batches(val_loader_factory, cfg)
+        val_batch = next(val_iter)
+        if "x" not in val_batch or "y" not in val_batch:
+            raise KeyError("Validation batches must contain 'x' and 'y' entries for contract checks")
+        contract_batch = val_batch
+        expected_y = val_batch["y"]
 
     model = submission.build_model(cfg).to(device)
     model.eval()
 
-    batch_on_device = _move_batch_to_device(dummy_batch, device)
+    batch_on_device = _move_batch_to_device(contract_batch, device)
     with torch.no_grad():
         preds = model(batch_on_device["x"])
 
-    expected_shape = batch_on_device["y"].shape
+    expected_shape = expected_y.shape
     if not hasattr(preds, "shape"):
         raise ValueError("Model forward pass must return a tensor-like object with a shape")
     if preds.shape != expected_shape:
@@ -136,7 +150,7 @@ def run_training(
     if hard_cap <= 0:
         raise ValueError("Training must run for at least one step")
 
-    model = _validate_model_contract(submission, cfg, train_loader_factory, device)
+    model = _validate_model_contract(submission, cfg, train_loader_factory, val_loader_factory, device)
 
     max_params = int(cfg.get("max_params", 10_000_000))
     if max_params <= 0:
