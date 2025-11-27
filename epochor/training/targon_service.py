@@ -13,7 +13,7 @@ from targon import Compute
 
 image = (
     targon.Image.debian_slim("3.12")
-    .pip_install("torch")
+    .pip_install("torch", "safetensors", "boto3")
     .add_local_dir("./", "/app/validator")
     .workdir("/app")
 )
@@ -36,6 +36,7 @@ def submit_and_train(payload: dict) -> dict:
     submission_id = str(payload.get("submission_id") or cfg.get("submission_id") or uuid.uuid4())
     run_id = str(payload.get("run_id") or cfg.get("run_id") or uuid.uuid4())
     cfg.update({"submission_id": submission_id, "run_id": run_id})
+    cfg.setdefault("artifact_dir", "/app/artifacts")
 
     submissions_dir = Path("/app/submissions")
     submissions_dir.mkdir(parents=True, exist_ok=True)
@@ -73,6 +74,8 @@ def submit_and_train(payload: dict) -> dict:
         "device": summary.device,
         "submission_id": summary.submission_id,
         "run_id": summary.run_id,
+        "artifact_path": summary.artifact_path,
+        "artifact_uri": summary.artifact_uri,
     }
     (runs_dir / f"{summary.run_id}.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
 

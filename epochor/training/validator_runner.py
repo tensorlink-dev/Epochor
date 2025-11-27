@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from dataclasses import dataclass
+from pathlib import Path
 import uuid
 from types import ModuleType
 from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, MutableMapping, Optional
@@ -11,6 +13,7 @@ import torch
 from torch import nn
 
 from .validator_contract import MinerSubmissionProtocol
+from epochor.utils.hf_io import save_as_safetensors
 
 Batch = Mapping[str, torch.Tensor]
 TrainLoaderFactory = Callable[[Dict[str, Any]], Iterable[Batch]]
@@ -34,6 +37,8 @@ class TrainingSummary:
     model: nn.Module
     submission_id: str
     run_id: str
+    artifact_path: str | None = None
+    artifact_uri: str | None = None
 
 
 def _resolve_run_ids(
@@ -74,6 +79,78 @@ def _count_params(model: nn.Module) -> int:
     """Return the total number of parameters in ``model``."""
 
     return sum(p.numel() for p in model.parameters())
+
+
+def _artifact_filename(submission_id: str, run_id: str, cfg: Mapping[str, Any]) -> str:
+    """Return the filename to use for a safetensors artifact."""
+
+    explicit = cfg.get("artifact_filename") or cfg.get("artifact_name")
+    if explicit:
+        return str(explicit)
+    return f"model_{submission_id}_{run_id}.safetensors"
+
+
+def _upload_file_to_s3(
+    local_path: Path,
+    *,
+    bucket: str,
+    key: str,
+    endpoint_url: str | None = None,
+    region: str | None = None,
+    access_key: str | None = None,
+    secret_key: str | None = None,
+) -> str:
+    """Upload ``local_path`` to an S3/R2-compatible bucket and return the URI."""
+
+    try:
+        import boto3
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError("boto3 is required for S3 uploads; install it or omit S3 config") from exc
+
+    client = boto3.client(
+        "s3",
+        region_name=region,
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+    )
+    client.upload_file(str(local_path), bucket, key)
+    return f"s3://{bucket}/{key}"
+
+
+def _persist_model_artifact(
+    model: nn.Module, submission_id: str, run_id: str, cfg: Mapping[str, Any]
+) -> tuple[str, str | None]:
+    """Save the trained ``model`` as safetensors and optionally upload to S3."""
+
+    artifact_root = Path(cfg.get("artifact_dir") or cfg.get("artifacts_dir") or "./artifacts")
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    filename = _artifact_filename(submission_id, run_id, cfg)
+    local_path = artifact_root / filename
+    saved_path = save_as_safetensors(model, local_path)
+
+    bucket = cfg.get("s3_bucket")
+    if not bucket:
+        return str(saved_path), None
+
+    key_prefix = cfg.get("s3_prefix", "validator-runs")
+    key_override = cfg.get("s3_key")
+    key = key_override or f"{key_prefix}/{submission_id}/{run_id}/{saved_path.name}"
+    endpoint_url = cfg.get("s3_endpoint") or cfg.get("s3_endpoint_url")
+    region = cfg.get("s3_region")
+    access_key = cfg.get("s3_access_key") or os.getenv("S3_ACCESS_KEY") or os.getenv("AWS_ACCESS_KEY_ID")
+    secret_key = cfg.get("s3_secret_key") or os.getenv("S3_SECRET_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY")
+
+    remote_uri = _upload_file_to_s3(
+        saved_path,
+        bucket=str(bucket),
+        key=str(key),
+        endpoint_url=endpoint_url,
+        region=region,
+        access_key=access_key,
+        secret_key=secret_key,
+    )
+    return str(saved_path), remote_uri
 
 
 def _prepare_inputs_and_targets(
@@ -219,6 +296,8 @@ def run_training(
 
     train_metrics: Optional[Dict[str, Any]] = None
     num_steps = 0
+    artifact_path: Optional[str] = None
+    artifact_uri: Optional[str] = None
 
     for epoch_idx in range(epochs_to_run):
         for batch in _iterate_batches(train_loader_factory, cfg):
@@ -258,6 +337,10 @@ def run_training(
         if not isinstance(val_metrics, MutableMapping):
             raise TypeError("evaluate_fn must return a mapping of metrics")
 
+    artifact_path, artifact_uri = _persist_model_artifact(
+        model, resolved_submission_id, resolved_run_id, cfg
+    )
+
     return TrainingSummary(
         train_metrics=dict(train_metrics),
         val_metrics=dict(val_metrics),
@@ -266,6 +349,8 @@ def run_training(
         model=model,
         submission_id=resolved_submission_id,
         run_id=resolved_run_id,
+        artifact_path=artifact_path,
+        artifact_uri=artifact_uri,
     )
 
 
