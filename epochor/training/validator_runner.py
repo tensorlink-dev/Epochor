@@ -9,13 +9,15 @@ from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, MutableMapp
 import torch
 from torch import nn
 
-from .data_and_eval import split_context_and_target
 from .validator_contract import MinerSubmissionProtocol
 
 Batch = Mapping[str, torch.Tensor]
 TrainLoaderFactory = Callable[[Dict[str, Any]], Iterable[Batch]]
 ValLoaderFactory = Callable[[Dict[str, Any]], Iterable[Batch]]
-EvaluateFn = Callable[[nn.Module, Iterable[Batch], torch.device, Dict[str, Any]], Dict[str, Any]]
+EvaluateFn = Callable[
+    [MinerSubmissionProtocol, nn.Module, Iterable[Batch], torch.device, Dict[str, Any]],
+    Dict[str, Any],
+]
 
 MAX_TRAIN_STEPS = 2_000
 
@@ -51,6 +53,26 @@ def _count_params(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
 
 
+def _prepare_inputs_and_targets(
+    submission: MinerSubmissionProtocol, batch: Mapping[str, torch.Tensor], cfg: Dict[str, Any]
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Use the submission to derive model inputs and targets from a batch."""
+
+    processed = submission.process_data(dict(batch), cfg)
+    if not isinstance(processed, Mapping):
+        raise TypeError("process_data must return a mapping")
+    if "inputs" not in processed:
+        raise KeyError("process_data result must include an 'inputs' entry")
+    if "targets" not in processed:
+        raise KeyError("process_data result must include a 'targets' entry")
+
+    inputs = processed["inputs"]
+    targets = processed["targets"]
+    if not isinstance(inputs, torch.Tensor) or not isinstance(targets, torch.Tensor):
+        raise TypeError("process_data 'inputs' and 'targets' must be tensors")
+    return inputs, targets
+
+
 def _validate_model_contract(
     submission: MinerSubmissionProtocol,
     cfg: Dict[str, Any],
@@ -60,11 +82,9 @@ def _validate_model_contract(
 ) -> nn.Module:
     """Build and validate a submission model against validator batch shapes.
 
-    This constructs the model, moves it to ``device``, performs a dummy forward
-    pass using a batch that provides a concatenated sequence ``x`` of length
-    ``context_length + prediction_length``, and ensures the predicted output
-    matches the derived target (the final ``prediction_length`` timesteps) shape
-    exactly.
+    This constructs the model, moves it to ``device``, derives inputs/targets via
+    ``submission.process_data``, performs a dummy forward pass, and ensures the
+    predicted output matches the derived target shape exactly.
     """
 
     train_iter = _iterate_batches(train_loader_factory, cfg)
@@ -73,13 +93,15 @@ def _validate_model_contract(
         raise KeyError("Training batches must contain an 'x' entry")
 
     try:
-        expected_context, expected_target = split_context_and_target(train_batch["x"], cfg)
+        batch_on_device = _move_batch_to_device(train_batch, device)
+        expected_context, expected_target = _prepare_inputs_and_targets(submission, batch_on_device, cfg)
     except Exception:
         val_iter = _iterate_batches(val_loader_factory, cfg)
         val_batch = next(val_iter)
         if "x" not in val_batch:
             raise KeyError("Validation batches must contain an 'x' entry for contract checks")
-        expected_context, expected_target = split_context_and_target(val_batch["x"], cfg)
+        batch_on_device = _move_batch_to_device(val_batch, device)
+        expected_context, expected_target = _prepare_inputs_and_targets(submission, batch_on_device, cfg)
 
     model = submission.build_model(cfg).to(device)
     model.eval()
@@ -201,6 +223,7 @@ def run_training(
     model.eval()
     with torch.no_grad():
         val_metrics = evaluate_fn(
+            submission,
             model,
             _iterate_batches(val_loader_factory, cfg),
             device,

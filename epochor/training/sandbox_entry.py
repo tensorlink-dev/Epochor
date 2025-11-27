@@ -123,7 +123,7 @@ def _make_evaluate_fn(
     samples: Sequence[Sequence[Mapping[str, torch.Tensor]]],
     eval_tasks: Sequence[Any],
     seed: int,
-) -> Callable[[Any, Iterable[Mapping[str, torch.Tensor]], torch.device, Dict[str, Any]], Dict[str, Any]]:
+) -> Callable[[Any, Any, Iterable[Mapping[str, torch.Tensor]], torch.device, Dict[str, Any]], Dict[str, Any]]:
     materialized_samples: list[list[Mapping[str, torch.Tensor]]] = []
     for task_batches in samples:
         copied_batches: list[Mapping[str, torch.Tensor]] = []
@@ -132,6 +132,7 @@ def _make_evaluate_fn(
         materialized_samples.append(copied_batches)
 
     def _evaluate(
+        submission: Any,
         model: Any,
         val_loader: Iterable[Mapping[str, torch.Tensor]],
         device: torch.device,

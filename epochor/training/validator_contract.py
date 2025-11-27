@@ -43,6 +43,22 @@ class MinerSubmissionProtocol:
 
         raise NotImplementedError
 
+    def process_data(self, batch: Dict[str, torch.Tensor], cfg: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        """Transform validator-provided batches into model-ready tensors.
+
+        Expectations:
+        - Receives the validator-provided ``batch`` containing at least ``batch["x"]``
+          with the concatenated context + prediction sequence.
+        - Returns a mapping containing at minimum ``"inputs"`` (model inputs) and
+          ``"targets"`` (expected outputs) as tensors. Additional derived tensors
+          may be included to support custom training logic.
+        - Implementations may reshape, normalize, or otherwise transform the data
+          but must remain deterministic under ``cfg`` and any externally provided
+          seed so that the validator can reproduce behavior.
+        """
+
+        raise NotImplementedError
+
     def train_step(
         self,
         model: nn.Module,

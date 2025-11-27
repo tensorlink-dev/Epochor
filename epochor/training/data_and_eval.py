@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Mapping, Sequence, Tuple
 
 import torch
+
+if TYPE_CHECKING:  # pragma: no cover - for type checkers only
+    from epochor.training.validator_contract import MinerSubmissionProtocol
 
 from epochor.validation.validation import score_time_series_model
 
@@ -95,6 +98,7 @@ def make_val_loader(cfg: Dict[str, Any]) -> Iterable[Batch]:
 
 
 def evaluate_fn(
+    submission: "MinerSubmissionProtocol",  # quoted to avoid import cycle
     model: torch.nn.Module,
     val_loader: Iterable[Batch],
     device: torch.device,
@@ -109,13 +113,23 @@ def evaluate_fn(
     with torch.no_grad():
         for batch in val_loader:
             batch_on_device = {key: tensor.to(device) for key, tensor in batch.items()}
-            context, target = split_context_and_target(batch_on_device["x"], cfg)
-            preds = model(context)
-            if preds.shape != target.shape:
+            processed = submission.process_data(batch_on_device, cfg)
+            if not isinstance(processed, Mapping):
+                raise TypeError("process_data must return a mapping during evaluation")
+            inputs = processed.get("inputs")
+            targets = processed.get("targets")
+            if inputs is None or targets is None:
+                context, target = split_context_and_target(batch_on_device["x"], cfg)
+                inputs = context if inputs is None else inputs
+                targets = target if targets is None else targets
+            if not isinstance(inputs, torch.Tensor) or not isinstance(targets, torch.Tensor):
+                raise TypeError("process_data inputs/targets must be tensors during evaluation")
+            preds = model(inputs)
+            if preds.shape != targets.shape:
                 raise ValueError(
-                    f"Validation forward shape {tuple(preds.shape)} does not match target {tuple(target.shape)}"
+                    f"Validation forward shape {tuple(preds.shape)} does not match target {tuple(targets.shape)}"
                 )
-            loss = torch.nn.functional.mse_loss(preds, target)
+            loss = torch.nn.functional.mse_loss(preds, targets)
             total_loss += float(loss.item())
             count += 1
     metrics["val_loss"] = total_loss / max(count, 1)
