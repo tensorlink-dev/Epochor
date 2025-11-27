@@ -207,7 +207,11 @@ def _validate_model_contract(
     model.eval()
 
     with torch.no_grad():
-        preds = model(expected_context.to(device))
+        inputs = expected_context.to(device)
+        try:
+            preds = submission.forecast(model, inputs, cfg)
+        except (NotImplementedError, AttributeError):
+            preds = model(inputs)
 
     expected_shape = expected_target.shape
     if not hasattr(preds, "shape"):

@@ -86,5 +86,24 @@ class MinerSubmissionProtocol:
 
         raise NotImplementedError
 
+    def forecast(self, model: nn.Module, inputs: torch.Tensor, cfg: Dict[str, Any]) -> torch.Tensor:
+        """Run inference to predict the next ``prediction_length`` steps.
+
+        Expectations:
+        - ``inputs`` should match the processed model inputs (typically the
+          context segment returned by :meth:`process_data`).
+        - The returned tensor must be deterministic under ``cfg`` and any
+          externally provided seed.
+        - The output shape must align with the derived targets (generally the
+          final ``prediction_length`` timesteps of the concatenated sequence).
+        - Implementations may apply custom decoding or sampling strategies but
+          must avoid leaking evaluation data and should keep runtime modest.
+
+        By default, this calls the model forward pass directly to preserve
+        backwards compatibility for submissions that do not override it.
+        """
+
+        return model(inputs)
+
 
 __all__ = ["MinerSubmissionProtocol"]

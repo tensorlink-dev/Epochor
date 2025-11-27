@@ -124,7 +124,10 @@ def evaluate_fn(
                 targets = target if targets is None else targets
             if not isinstance(inputs, torch.Tensor) or not isinstance(targets, torch.Tensor):
                 raise TypeError("process_data inputs/targets must be tensors during evaluation")
-            preds = model(inputs)
+            try:
+                preds = submission.forecast(model, inputs, cfg)
+            except (NotImplementedError, AttributeError):
+                preds = model(inputs)
             if preds.shape != targets.shape:
                 raise ValueError(
                     f"Validation forward shape {tuple(preds.shape)} does not match target {tuple(targets.shape)}"

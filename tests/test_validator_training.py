@@ -37,6 +37,9 @@ class _ToySubmission(MinerSubmissionProtocol):
         target = sequence[:, context_len : context_len + pred_len]
         return {"inputs": context, "targets": target}
 
+    def forecast(self, model: nn.Module, inputs: torch.Tensor, cfg: Dict[str, Any]) -> torch.Tensor:
+        return model(inputs)
+
     def train_step(
         self,
         model: nn.Module,
@@ -143,10 +146,17 @@ class Demo(MinerSubmissionProtocol):
     def build_optimizer(self, model: nn.Module, cfg: Dict[str, Any]) -> torch.optim.Optimizer:
         return torch.optim.SGD(model.parameters(), lr=0.1)
 
+    def process_data(self, batch, cfg):
+        return {"inputs": batch["x"], "targets": batch["x"]}
+
+    def forecast(self, model, inputs, cfg):
+        return model(inputs)
+
     def train_step(self, model, batch, optimizer, step_idx, cfg):
         optimizer.zero_grad(set_to_none=True)
-        preds = model(batch["x"])
-        loss = torch.nn.functional.mse_loss(preds, batch["y"])
+        processed = self.process_data(batch, cfg)
+        preds = model(processed["inputs"])
+        loss = torch.nn.functional.mse_loss(preds, processed["targets"])
         loss.backward()
         optimizer.step()
         return {"loss": float(loss.detach())}
