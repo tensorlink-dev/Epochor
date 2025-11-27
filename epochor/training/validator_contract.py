@@ -1,7 +1,7 @@
 """Public-facing contract that miners must implement for validator-driven training."""
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Sequence
 
 import torch
 from torch import nn
@@ -50,8 +50,9 @@ class MinerSubmissionProtocol:
         - Receives the validator-provided ``batch`` containing at least ``batch["x"]``
           with the concatenated context + prediction sequence.
         - Returns a mapping containing at minimum ``"inputs"`` (model inputs) and
-          ``"targets"`` (expected outputs) as tensors. Additional derived tensors
-          may be included to support custom training logic.
+          ``"targets"`` (expected outputs) as tensors. Targets **must** include a
+          quantile axis matching the requested quantiles (default 9). Additional
+          derived tensors may be included to support custom training logic.
         - Implementations may reshape, normalize, or otherwise transform the data
           but must remain deterministic under ``cfg`` and any externally provided
           seed so that the validator can reproduce behavior.
@@ -86,23 +87,42 @@ class MinerSubmissionProtocol:
 
         raise NotImplementedError
 
-    def forecast(self, model: nn.Module, inputs: torch.Tensor, cfg: Dict[str, Any]) -> torch.Tensor:
-        """Run inference to predict the next ``prediction_length`` steps.
+    def forecast(
+        self,
+        model: nn.Module,
+        inputs: torch.Tensor,
+        cfg: Dict[str, Any],
+        *,
+        prediction_length: int | None = None,
+        quantiles: Sequence[float] | None = None,
+    ) -> torch.Tensor:
+        """Run inference to predict ``prediction_length`` steps and quantiles.
 
         Expectations:
         - ``inputs`` should match the processed model inputs (typically the
           context segment returned by :meth:`process_data`).
+        - ``prediction_length`` must match ``cfg['prediction_length']`` unless
+          otherwise specified; outputs **must** span exactly this many future
+          steps.
+        - ``quantiles`` defaults to nine quantiles if not provided. The returned
+          tensor must include a quantile axis whose length matches the provided
+          quantiles (e.g., ``len(quantiles) == 9``).
         - The returned tensor must be deterministic under ``cfg`` and any
           externally provided seed.
-        - The output shape must align with the derived targets (generally the
-          final ``prediction_length`` timesteps of the concatenated sequence).
         - Implementations may apply custom decoding or sampling strategies but
           must avoid leaking evaluation data and should keep runtime modest.
 
-        By default, this calls the model forward pass directly to preserve
-        backwards compatibility for submissions that do not override it.
+        By default, this calls ``model.forecast`` when available to preserve
+        quantile-aware behavior, otherwise it falls back to a direct forward
+        pass (without quantile handling) for backwards compatibility.
         """
 
+        if hasattr(model, "forecast"):
+            return model.forecast(
+                inputs=inputs,
+                prediction_length=prediction_length,
+                quantiles=quantiles,
+            )
         return model(inputs)
 
 

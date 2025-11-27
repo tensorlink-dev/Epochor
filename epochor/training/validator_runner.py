@@ -81,6 +81,35 @@ def _count_params(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
 
 
+def _resolve_prediction_length(cfg: Mapping[str, Any]) -> int:
+    """Return the required prediction length from configuration."""
+
+    try:
+        prediction_length = int(cfg["prediction_length"])
+    except KeyError as exc:
+        raise KeyError("cfg must include 'prediction_length'") from exc
+    if prediction_length <= 0:
+        raise ValueError("prediction_length must be positive")
+    return prediction_length
+
+
+def _resolve_quantiles(cfg: Mapping[str, Any]) -> list[float]:
+    """Return quantiles list, defaulting to nine evenly spaced values."""
+
+    quantiles = cfg.get("quantiles")
+    if quantiles is None:
+        quantiles = [0.1 * i for i in range(1, 10)]
+    if not isinstance(quantiles, (list, tuple)):
+        raise TypeError("quantiles must be a list or tuple of floats")
+    resolved = [float(q) for q in quantiles]
+    if len(resolved) != 9:
+        raise ValueError(f"quantiles must include exactly 9 entries (received {len(resolved)})")
+    for q in resolved:
+        if not 0 < q < 1:
+            raise ValueError("quantiles must satisfy 0 < q < 1")
+    return resolved
+
+
 def _artifact_filename(submission_id: str, run_id: str, cfg: Mapping[str, Any]) -> str:
     """Return the filename to use for a safetensors artifact."""
 
@@ -170,6 +199,19 @@ def _prepare_inputs_and_targets(
     targets = processed["targets"]
     if not isinstance(inputs, torch.Tensor) or not isinstance(targets, torch.Tensor):
         raise TypeError("process_data 'inputs' and 'targets' must be tensors")
+
+    prediction_length = _resolve_prediction_length(cfg)
+    quantiles = _resolve_quantiles(cfg)
+    if targets.shape[1] != prediction_length:
+        raise ValueError(
+            f"targets must span prediction_length={prediction_length} timesteps (got {targets.shape[1]})"
+        )
+    if targets.shape[-1] != len(quantiles):
+        raise ValueError(
+            "targets last dimension must match quantile count "
+            f"(expected {len(quantiles)}, got {targets.shape[-1]})"
+        )
+
     return inputs, targets
 
 
@@ -203,19 +245,44 @@ def _validate_model_contract(
         batch_on_device = _move_batch_to_device(val_batch, device)
         expected_context, expected_target = _prepare_inputs_and_targets(submission, batch_on_device, cfg)
 
+    prediction_length = _resolve_prediction_length(cfg)
+    quantiles = _resolve_quantiles(cfg)
+
     model = submission.build_model(cfg).to(device)
     model.eval()
 
     with torch.no_grad():
         inputs = expected_context.to(device)
         try:
-            preds = submission.forecast(model, inputs, cfg)
+            preds = submission.forecast(
+                model,
+                inputs,
+                cfg,
+                prediction_length=prediction_length,
+                quantiles=quantiles,
+            )
         except (NotImplementedError, AttributeError):
-            preds = model(inputs)
+            if hasattr(model, "forecast"):
+                preds = model.forecast(
+                    inputs=inputs,
+                    prediction_length=prediction_length,
+                    quantiles=quantiles,
+                )
+            else:
+                preds = model(inputs)
 
     expected_shape = expected_target.shape
     if not hasattr(preds, "shape"):
         raise ValueError("Model forward pass must return a tensor-like object with a shape")
+    if preds.shape[1] != prediction_length:
+        raise ValueError(
+            f"Model output must span prediction_length={prediction_length} timesteps (got {preds.shape[1]})"
+        )
+    if preds.shape[-1] != len(quantiles):
+        raise ValueError(
+            "Model output quantile dimension must match requested quantiles "
+            f"(expected {len(quantiles)}, got {preds.shape[-1]})"
+        )
     if preds.shape != expected_shape:
         raise ValueError(
             f"Model output shape {tuple(preds.shape)} does not match expected {tuple(expected_shape)}"

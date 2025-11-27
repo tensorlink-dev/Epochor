@@ -32,13 +32,26 @@ class _ToySubmission(MinerSubmissionProtocol):
     def process_data(self, batch: Dict[str, torch.Tensor], cfg: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         context_len = int(cfg["context_length"])
         pred_len = int(cfg["prediction_length"])
+        quantiles = cfg.get("quantiles") or [0.1 * i for i in range(1, 10)]
         sequence = batch["x"]
         context = sequence[:, :context_len]
-        target = sequence[:, context_len : context_len + pred_len]
+        target = sequence[:, context_len : context_len + pred_len].unsqueeze(-1)
+        target = target.repeat(1, 1, len(quantiles))
         return {"inputs": context, "targets": target}
 
-    def forecast(self, model: nn.Module, inputs: torch.Tensor, cfg: Dict[str, Any]) -> torch.Tensor:
-        return model(inputs)
+    def forecast(
+        self,
+        model: nn.Module,
+        inputs: torch.Tensor,
+        cfg: Dict[str, Any],
+        *,
+        prediction_length: int | None = None,
+        quantiles=None,
+    ) -> torch.Tensor:
+        quantiles = quantiles or [0.1 * i for i in range(1, 10)]
+        pred_len = prediction_length or int(cfg["prediction_length"])
+        base = model(inputs).unsqueeze(-1)
+        return base.repeat(1, pred_len, len(quantiles))
 
     def train_step(
         self,
@@ -51,7 +64,8 @@ class _ToySubmission(MinerSubmissionProtocol):
         self.history.append(step_idx)
         optimizer.zero_grad(set_to_none=True)
         processed = self.process_data(batch, cfg)
-        preds = model(processed["inputs"])
+        quantiles = cfg.get("quantiles") or [0.1 * i for i in range(1, 10)]
+        preds = model(processed["inputs"]).unsqueeze(-1).repeat(1, 1, len(quantiles))
         loss = torch.nn.functional.mse_loss(preds, processed["targets"])
         loss.backward()
         optimizer.step()
@@ -75,10 +89,11 @@ def _evaluate(
     cfg: Dict[str, Any],
 ) -> Dict[str, Any]:
     losses: List[float] = []
+    quantiles = cfg.get("quantiles") or [0.1 * i for i in range(1, 10)]
     for batch in loader:
         batch_on_device = {k: v.to(device) for k, v in batch.items()}
         processed = submission.process_data(batch_on_device, cfg)
-        preds = model(processed["inputs"])
+        preds = model(processed["inputs"]).unsqueeze(-1).repeat(1, 1, len(quantiles))
         loss = torch.nn.functional.mse_loss(preds, processed["targets"])
         losses.append(float(loss.detach().cpu()))
     return {"val_loss": sum(losses) / len(losses)}
@@ -147,15 +162,21 @@ class Demo(MinerSubmissionProtocol):
         return torch.optim.SGD(model.parameters(), lr=0.1)
 
     def process_data(self, batch, cfg):
-        return {"inputs": batch["x"], "targets": batch["x"]}
+        quantiles = cfg.get("quantiles") or [0.1 * i for i in range(1, 10)]
+        target = batch["x"].unsqueeze(-1).repeat(1, 1, len(quantiles))
+        return {"inputs": batch["x"], "targets": target}
 
-    def forecast(self, model, inputs, cfg):
-        return model(inputs)
+    def forecast(self, model, inputs, cfg, *, prediction_length=None, quantiles=None):
+        quantiles = quantiles or [0.1 * i for i in range(1, 10)]
+        pred_len = prediction_length or int(cfg["prediction_length"])
+        base = model(inputs).unsqueeze(-1)
+        return base.repeat(1, pred_len, len(quantiles))
 
     def train_step(self, model, batch, optimizer, step_idx, cfg):
         optimizer.zero_grad(set_to_none=True)
         processed = self.process_data(batch, cfg)
-        preds = model(processed["inputs"])
+        quantiles = cfg.get("quantiles") or [0.1 * i for i in range(1, 10)]
+        preds = model(processed["inputs"]).unsqueeze(-1).repeat(1, 1, len(quantiles))
         loss = torch.nn.functional.mse_loss(preds, processed["targets"])
         loss.backward()
         optimizer.step()

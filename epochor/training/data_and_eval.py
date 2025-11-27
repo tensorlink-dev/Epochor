@@ -12,6 +12,7 @@ if TYPE_CHECKING:  # pragma: no cover - for type checkers only
 from epochor.validation.validation import score_time_series_model
 
 Batch = Mapping[str, torch.Tensor]
+DEFAULT_QUANTILES = [0.1 * i for i in range(1, 10)]
 
 
 def split_context_and_target(sequence: torch.Tensor, cfg: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -44,6 +45,23 @@ def split_context_and_target(sequence: torch.Tensor, cfg: Dict[str, Any]) -> Tup
     context = sequence[:, :context_length]
     target = sequence[:, context_length : context_length + prediction_length]
     return context, target
+
+
+def _resolve_quantiles(cfg: Dict[str, Any]) -> Sequence[float]:
+    """Return quantile levels, defaulting to nine evenly spaced values."""
+
+    quantiles = cfg.get("quantiles")
+    if quantiles is None:
+        quantiles = DEFAULT_QUANTILES
+    if not isinstance(quantiles, (list, tuple)):
+        raise TypeError("quantiles must be a list or tuple of floats")
+    resolved = [float(q) for q in quantiles]
+    if len(resolved) != 9:
+        raise ValueError(f"quantiles must include exactly 9 entries (received {len(resolved)})")
+    for q in resolved:
+        if not 0 < q < 1:
+            raise ValueError("quantiles must satisfy 0 < q < 1")
+    return resolved
 
 
 def _ensure_batches(batches: Sequence[Mapping[str, torch.Tensor]]) -> Sequence[Mapping[str, torch.Tensor]]:
@@ -110,6 +128,9 @@ def evaluate_fn(
     metrics: Dict[str, Any] = {}
     total_loss = 0.0
     count = 0
+    quantiles = _resolve_quantiles(cfg)
+    quantile_count = len(quantiles)
+    prediction_length = int(cfg["prediction_length"])
     with torch.no_grad():
         for batch in val_loader:
             batch_on_device = {key: tensor.to(device) for key, tensor in batch.items()}
@@ -124,10 +145,31 @@ def evaluate_fn(
                 targets = target if targets is None else targets
             if not isinstance(inputs, torch.Tensor) or not isinstance(targets, torch.Tensor):
                 raise TypeError("process_data inputs/targets must be tensors during evaluation")
+            if targets.shape[1] != prediction_length:
+                raise ValueError(
+                    f"targets must span prediction_length={prediction_length} timesteps (got {targets.shape[1]})"
+                )
+            if targets.shape[-1] != quantile_count:
+                raise ValueError(
+                    f"targets last dimension must match quantile count {quantile_count} (got {targets.shape[-1]})"
+                )
             try:
-                preds = submission.forecast(model, inputs, cfg)
+                preds = submission.forecast(
+                    model,
+                    inputs,
+                    cfg,
+                    prediction_length=prediction_length,
+                    quantiles=quantiles,
+                )
             except (NotImplementedError, AttributeError):
-                preds = model(inputs)
+                if hasattr(model, "forecast"):
+                    preds = model.forecast(
+                        inputs=inputs,
+                        prediction_length=prediction_length,
+                        quantiles=quantiles,
+                    )
+                else:
+                    preds = model(inputs)
             if preds.shape != targets.shape:
                 raise ValueError(
                     f"Validation forward shape {tuple(preds.shape)} does not match target {tuple(targets.shape)}"
