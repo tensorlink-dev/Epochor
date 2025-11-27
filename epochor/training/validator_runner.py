@@ -22,6 +22,7 @@ EvaluateFn = Callable[
     [MinerSubmissionProtocol, nn.Module, Iterable[Batch], torch.device, Dict[str, Any]],
     Dict[str, Any],
 ]
+BenchmarkLoaderFactory = Callable[[Dict[str, Any]], Iterable[Batch]]
 
 MAX_TRAIN_STEPS = 2_000
 
@@ -215,6 +216,35 @@ def _prepare_inputs_and_targets(
     return inputs, targets
 
 
+def _call_forecast(
+    submission: MinerSubmissionProtocol,
+    model: nn.Module,
+    inputs: torch.Tensor,
+    cfg: Mapping[str, Any],
+    *,
+    prediction_length: int,
+    quantiles: list[float],
+) -> torch.Tensor:
+    """Invoke the submission's forecast method (with fallbacks) and return outputs."""
+
+    try:
+        return submission.forecast(
+            model,
+            inputs,
+            cfg,
+            prediction_length=prediction_length,
+            quantiles=quantiles,
+        )
+    except (NotImplementedError, AttributeError):
+        if hasattr(model, "forecast"):
+            return model.forecast(
+                inputs=inputs,
+                prediction_length=prediction_length,
+                quantiles=quantiles,
+            )
+        return model(inputs)
+
+
 def _validate_model_contract(
     submission: MinerSubmissionProtocol,
     cfg: Dict[str, Any],
@@ -253,23 +283,14 @@ def _validate_model_contract(
 
     with torch.no_grad():
         inputs = expected_context.to(device)
-        try:
-            preds = submission.forecast(
-                model,
-                inputs,
-                cfg,
-                prediction_length=prediction_length,
-                quantiles=quantiles,
-            )
-        except (NotImplementedError, AttributeError):
-            if hasattr(model, "forecast"):
-                preds = model.forecast(
-                    inputs=inputs,
-                    prediction_length=prediction_length,
-                    quantiles=quantiles,
-                )
-            else:
-                preds = model(inputs)
+        preds = _call_forecast(
+            submission,
+            model,
+            inputs,
+            cfg,
+            prediction_length=prediction_length,
+            quantiles=quantiles,
+        )
 
     expected_shape = expected_target.shape
     if not hasattr(preds, "shape"):
@@ -425,6 +446,59 @@ def run_training(
     )
 
 
+def benchmark_submission(
+    submission: MinerSubmissionProtocol,
+    model: nn.Module,
+    cfg: Dict[str, Any],
+    *,
+    benchmark_loader_factory: BenchmarkLoaderFactory,
+    preferred_device: Optional[Any] = None,
+) -> list[Dict[str, torch.Tensor]]:
+    """Run the trained model in eval mode on unseen data using ``forecast``.
+
+    The benchmark loader is expected to yield batches with ``"x"`` entries whose
+    lengths reflect the desired context and prediction lengths. The submission's
+    ``process_data`` hook derives inputs/targets; ``forecast`` must return
+    tensors matching the target shape and quantile dimension.
+    """
+
+    device = _resolve_device(preferred_device)
+    prediction_length = _resolve_prediction_length(cfg)
+    quantiles = _resolve_quantiles(cfg)
+    results: list[Dict[str, torch.Tensor]] = []
+
+    model.eval()
+    with torch.no_grad():
+        for batch in _iterate_batches(benchmark_loader_factory, cfg):
+            batch_on_device = _move_batch_to_device(batch, device)
+            inputs, targets = _prepare_inputs_and_targets(submission, batch_on_device, cfg)
+            preds = _call_forecast(
+                submission,
+                model,
+                inputs,
+                cfg,
+                prediction_length=prediction_length,
+                quantiles=quantiles,
+            )
+            if preds.shape[1] != prediction_length:
+                raise ValueError(
+                    "Benchmark predictions must span the configured prediction length "
+                    f"{prediction_length} (got {preds.shape[1]})"
+                )
+            if preds.shape[-1] != len(quantiles):
+                raise ValueError(
+                    "Benchmark predictions must include the configured quantile dimension "
+                    f"{len(quantiles)} (got {preds.shape[-1]})"
+                )
+            if preds.shape != targets.shape:
+                raise ValueError(
+                    f"Benchmark output shape {tuple(preds.shape)} does not match target {tuple(targets.shape)}"
+                )
+            results.append({"preds": preds.cpu(), "targets": targets.cpu()})
+
+    return results
+
+
 def _capture_allocated(device: torch.device) -> Optional[int]:
     """Return current CUDA memory allocation for ``device`` if available."""
 
@@ -456,4 +530,5 @@ __all__ = [
     "TrainingSummary",
     "load_miner_module",
     "run_training",
+    "benchmark_submission",
 ]

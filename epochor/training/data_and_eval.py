@@ -47,6 +47,46 @@ def split_context_and_target(sequence: torch.Tensor, cfg: Dict[str, Any]) -> Tup
     return context, target
 
 
+def make_length_sliced_loader(cfg: Dict[str, Any]) -> Iterable[Batch]:
+    """Load sequences and slice them to configurable context/prediction lengths.
+
+    Expects serialized sequences at ``cfg['length_sliced_path']`` (or
+    ``cfg['benchmark_sequences_path']``) where each entry is a tensor shaped
+    ``(batch, time, ...)`` containing a concatenated context+target sequence.
+    Context and prediction lengths default to ``cfg['context_length']`` and
+    ``cfg['prediction_length']`` but may be overridden via
+    ``cfg['benchmark_context_length']`` and ``cfg['benchmark_prediction_length']``.
+    """
+
+    data_path = cfg.get("length_sliced_path") or cfg.get("benchmark_sequences_path")
+    if data_path is None:
+        raise ValueError("cfg must include 'length_sliced_path' or 'benchmark_sequences_path'")
+
+    sequences = torch.load(Path(data_path))
+    if not isinstance(sequences, Sequence):
+        raise TypeError("Loaded benchmark data must be a sequence of tensors")
+
+    context_length = int(cfg.get("benchmark_context_length", cfg.get("context_length", 0)))
+    prediction_length = int(cfg.get("benchmark_prediction_length", cfg.get("prediction_length", 0)))
+    if context_length <= 0 or prediction_length <= 0:
+        raise ValueError("context_length and prediction_length must be positive for slicing")
+
+    total_length = context_length + prediction_length
+    batches: list[Mapping[str, torch.Tensor]] = []
+    for idx, seq in enumerate(sequences):
+        if not isinstance(seq, torch.Tensor):
+            raise TypeError(f"Sequence #{idx} must be a torch.Tensor (got {type(seq)!r})")
+        if seq.dim() < 2:
+            raise ValueError(f"Sequence #{idx} must have shape (batch, time, ...)")
+        if seq.shape[1] < total_length:
+            raise ValueError(
+                f"Sequence #{idx} length {seq.shape[1]} is shorter than required {total_length}"
+            )
+        batches.append({"x": seq[:, :total_length]})
+
+    return _materialize_batches(batches)
+
+
 def _resolve_quantiles(cfg: Dict[str, Any]) -> Sequence[float]:
     """Return quantile levels, defaulting to nine evenly spaced values."""
 
@@ -196,4 +236,10 @@ def evaluate_fn(
     return metrics
 
 
-__all__ = ["make_train_loader", "make_val_loader", "evaluate_fn", "split_context_and_target"]
+__all__ = [
+    "make_train_loader",
+    "make_val_loader",
+    "evaluate_fn",
+    "split_context_and_target",
+    "make_length_sliced_loader",
+]
