@@ -5,6 +5,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+import uuid
 
 import targon
 from targon import Compute
@@ -31,11 +32,14 @@ def submit_and_train(payload: dict) -> dict:
         raise ValueError("Payload must contain 'submission_code' and 'cfg'")
 
     submission_code = payload["submission_code"]
-    cfg = payload["cfg"]
+    cfg = dict(payload["cfg"])
+    submission_id = str(payload.get("submission_id") or cfg.get("submission_id") or uuid.uuid4())
+    run_id = str(payload.get("run_id") or cfg.get("run_id") or uuid.uuid4())
+    cfg.update({"submission_id": submission_id, "run_id": run_id})
 
     submissions_dir = Path("/app/submissions")
     submissions_dir.mkdir(parents=True, exist_ok=True)
-    submission_path = submissions_dir / "submission.py"
+    submission_path = submissions_dir / f"{submission_id}.py"
     submission_path.write_text(submission_code, encoding="utf-8")
 
     if "/app/validator" not in sys.path:
@@ -56,14 +60,23 @@ def submit_and_train(payload: dict) -> dict:
         preferred_device=preferred_device,
         grad_clip_norm=cfg.get("grad_clip_norm"),
         max_memory_bytes=cfg.get("max_memory_bytes"),
+        submission_id=submission_id,
+        run_id=run_id,
     )
 
-    return {
+    runs_dir = Path("/app/run_records")
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    record = {
         "train_metrics": summary.train_metrics,
         "val_metrics": summary.val_metrics,
         "num_steps": summary.num_steps,
         "device": summary.device,
+        "submission_id": summary.submission_id,
+        "run_id": summary.run_id,
     }
+    (runs_dir / f"{summary.run_id}.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+
+    return record
 
 
 async def run_single_training(submission_code: str, cfg: dict) -> dict:

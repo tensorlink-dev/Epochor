@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 from dataclasses import dataclass
+import uuid
 from types import ModuleType
 from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, MutableMapping, Optional
 
@@ -31,6 +32,28 @@ class TrainingSummary:
     num_steps: int
     device: str
     model: nn.Module
+    submission_id: str
+    run_id: str
+
+
+def _resolve_run_ids(
+    cfg: Mapping[str, Any], submission_id: Optional[str] = None, run_id: Optional[str] = None
+) -> tuple[str, str]:
+    """Return stable submission and run identifiers.
+
+    ``submission_id`` may be provided explicitly or via ``cfg['submission_id']``;
+    otherwise, a new UUID4 string is generated. ``run_id`` is always unique per
+    invocation unless explicitly provided or present in ``cfg``.
+    """
+
+    resolved_submission_id = str(
+        submission_id
+        or cfg.get("submission_id")
+        or cfg.get("submission_uuid")
+        or uuid.uuid4()
+    )
+    resolved_run_id = str(run_id or cfg.get("run_id") or uuid.uuid4())
+    return resolved_submission_id, resolved_run_id
 
 
 def _resolve_device(preferred: Optional[Any] = None) -> torch.device:
@@ -159,9 +182,12 @@ def run_training(
     preferred_device: Optional[Any] = None,
     grad_clip_norm: Optional[float] = None,
     max_memory_bytes: Optional[int] = None,
+    submission_id: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> TrainingSummary:
     """Execute the validator-owned training loop for a miner submission."""
 
+    resolved_submission_id, resolved_run_id = _resolve_run_ids(cfg, submission_id, run_id)
     device = _resolve_device(preferred_device)
     max_steps_cfg = cfg.get("max_steps")
     hard_cap = MAX_TRAIN_STEPS if max_train_steps is None else min(MAX_TRAIN_STEPS, int(max_train_steps))
@@ -238,6 +264,8 @@ def run_training(
         num_steps=num_steps,
         device=str(device),
         model=model,
+        submission_id=resolved_submission_id,
+        run_id=resolved_run_id,
     )
 
 

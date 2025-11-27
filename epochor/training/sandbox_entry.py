@@ -158,6 +158,8 @@ def _write_summary(path: Path, summary: TrainingSummary) -> Dict[str, Any]:
         "val_metrics": _normalize_values(summary.val_metrics),
         "num_steps": summary.num_steps,
         "device": summary.device,
+        "submission_id": summary.submission_id,
+        "run_id": summary.run_id,
     }
     with path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)
@@ -191,6 +193,8 @@ def _materialize_artifacts(
         "val_metrics": summary_payload.get("val_metrics", {}),
         "num_steps": summary_payload.get("num_steps", 0),
         "device": summary_payload.get("device"),
+        "submission_id": summary_payload.get("submission_id"),
+        "run_id": summary_payload.get("run_id"),
     }
     with metrics_path.open("w", encoding="utf-8") as fh:
         json.dump(metrics_payload, fh, indent=2)

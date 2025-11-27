@@ -91,6 +91,8 @@ def test_run_training_respects_step_cap():
         val_loader_factory=_fixed_batches,
         evaluate_fn=_evaluate,
         max_train_steps=MAX_TRAIN_STEPS,
+        submission_id="sub-1",
+        run_id="run-1",
     )
 
     assert isinstance(summary, TrainingSummary)
@@ -99,6 +101,8 @@ def test_run_training_respects_step_cap():
     assert "loss" in summary.train_metrics
     assert "val_loss" in summary.val_metrics
     assert isinstance(summary.model, nn.Module)
+    assert summary.submission_id == "sub-1"
+    assert summary.run_id == "run-1"
 
 
 def test_run_training_rejects_missing_loss():
